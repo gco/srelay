@@ -1,0 +1,98 @@
+#
+#  Changes
+#
+
+0.3 (2002/06/14)
+auth-pwd.c
+  auth_pwd_server()
+    * log format
+    * make sure to cleanup username password storage.
+
+init.c
+relay.c
+  global array str_serv_sock added.
+  which is used in tcp_wrapper's validation control.
+  this array holds strings formed
+	nnn.nnn.nnn.nnn.ppppp
+  where nnn.... is IP address and ppppp is a port number.
+  this corresponds srelay server's listen socket, i.e. arguments
+  of 'i' option. this string can be used as "daemon list" of 
+  tcp_wrappers hosts_access(5) file.
+  when you started srelay
+
+  # srelay -i 123.223.100.10
+
+  you can put in 'hosts.allow' like,
+
+  123.223.100.10.1080: my.domain.com 123.223.100.
+
+  with no 'i' option,
+
+  0.0.0.0.1080: 123.123.123.
+
+  will be evaluated. in any case, the daemon list 'srelay' can
+
+  be evaluated as whole daemon sockets of srelay.
+
+relay.c
+  relay()
+  change some codes for collecting informations of transfer state
+  logging.
+
+main.c
+socks.c
+  command line '-b' option added.
+  this indicates SOCKS BIND sockets port restriction off.
+  the port restriction is impremented in my own way, because the
+  definition of BIND requested port is quite not sure.
+
+  RFC1928 says about BIND request's DST.PORT just, 
+
+  ... In(It ?) is expected that a SOCKS server will use DST.ADDR
+  and DST.PORT in evaluating the BIND request.
+
+  and, NEC's draft "draft-ietf-aft-socks-pro-v5-04, 22 February 1999"
+  (http://www.socks.nec.com/draft/draft-ietf-aft-socks-pro-v5-04.txt)
+  rewrites here by,
+
+  DST.ADDR must be the address of the primary connection's
+  destination.  DST.PORT should be the requested port (or 0 for a
+  random, unused port).  It is expected that a SOCKS server will
+  use DST.ADDR and DST.PORT in evaluating the BIND request.
+
+  there are some imprementation that setting this BIND request's 
+  DST.PORT to the same value as primary CONNECTion's requested
+  DST.PORT. (FFFTP 1.8 etc.)
+
+  my own rule:
+     BIND port selection priority.
+     1. requested port. (assuming dest->sin_port as requested port)
+     2. clients src port.
+     3. free port.
+     and, restriction:
+     if requested port or client's src port is less than
+     IPPORT_RESERVEDSTART(600), force selecting free port.
+
+socks.c
+
+  bug fix.
+  when using username/password auth in socks5 server mode, it was
+  still usable as socks4 server. this conflicts,
+	- user needs username/password in socks5
+    but,
+	- user doesn't need any authentication in using socks4.
+  fixed as if the srelay invoked using '-a' option, the socks4
+  requests are shut-offed.
+
+readconf.c
+  readconf()
+    make function durable in reloading config.
+
+main.c
+util.c
+  define SIGHUP handler 'reload'. you can reconfigure srelay.conf
+  (socks relay configuration) with "kill -HUP pid" operation.
+
+srelay.h
+  BUFSIZE 2048 -> 8192
+  a little blessing speed up.

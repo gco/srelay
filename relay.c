@@ -48,6 +48,17 @@ typedef struct {
   char buf[BUFSIZE];
 } rlyinfo;
 
+typedef struct {
+  struct sockaddr_in *sa;
+  struct sockaddr_in *ca;
+  struct sockaddr_in *saa;
+  struct sockaddr_in *caa;
+  u_long upl;
+  u_long dnl;
+  u_long bc;
+  struct timeval *elp;
+} loginfo;
+  
 int resolv_client;
 
 /* proto types */
@@ -56,7 +67,7 @@ void writen __P((rlyinfo *));
 ssize_t forward __P((rlyinfo *));
 int validate_access __P((char *, char *));
 void relay __P((int, int));
-int log_transfer __P((int, int, u_long, u_long, struct timeval *));
+int log_transfer __P((loginfo *));
 
 void readn(rlyinfo *ri)
 {
@@ -104,12 +115,24 @@ ssize_t forward(rlyinfo *ri)
 
 int validate_access(char *client_addr, char *client_name)
 {
-  int stat = 1; /* valid access */
+  int stat = 0;
+  int i;
 
 #ifdef HAVE_LIBWRAP
+  /* proc ident pattern */
   stat = hosts_ctl(ident, client_name, client_addr, STRING_UNKNOWN);
+  /* IP.PORT pattern */
+  for (i = 0; i < serv_sock_ind; i++) {
+    if (str_serv_sock[i] != NULL && str_serv_sock[i][0] != NULL) {
+      stat |= hosts_ctl(str_serv_sock[i],
+			client_name, client_addr, STRING_UNKNOWN);
+    }
+  }
+#else
+  stat = 1;  /* allow access un-conditionaly */
 #endif
-  if (stat != 1) {
+
+  if (stat < 1) {
     msg_out(warn, "%s[%s] access denied.", client_name, client_addr);
   }
 
@@ -125,11 +148,13 @@ void relay(int cs, int ss)
   struct timeval tv, ts, ots, elp;
   struct timezone tz;
   ssize_t wc;
-  u_long  upl, dnl, bc;
   rlyinfo ri;
   int done;
   u_long max_count = idle_timeout;
   u_long timeout_count;
+  loginfo li;
+  struct sockaddr_in sa, ca, saa, caa;   /* using for logging */
+  int len;
 
   /* idle timeout related setting. */
   tv.tv_sec = 60; tv.tv_usec = 0;   /* unit = 1 minute. */
@@ -137,10 +162,26 @@ void relay(int cs, int ss)
   ri.nr = BUFSIZE;
   tz.tz_minuteswest = 0; tz.tz_dsttime = 0;
 
+  /* prepare sockaddr info for logging */
+  /* get socket ss peer name */
+  len = sizeof(struct sockaddr_in);
+  getpeername(ss, (struct sockaddr *)&sa, &len);
+  /* get socket cs peer name */
+  len = sizeof(struct sockaddr_in);
+  getpeername(cs, (struct sockaddr *)&ca, &len);
+  /* get socket name of upstream side */
+  len = sizeof(struct sockaddr_in);
+  getsockname(ss, (struct sockaddr *)&saa, &len);
+  /* get socket name of downtream side */
+  len = sizeof(struct sockaddr_in);
+  getsockname(cs, (struct sockaddr *)&caa, &len);
+  li.sa = &sa; li.ca = &ca; li.saa = &saa, li.caa = &caa;
+  /* * */
+
   nfds = (ss > cs ? ss : cs);
   setsignal(SIGALRM, timeout);
   gettimeofday(&ots, &tz);
-  bc = upl = dnl = 0; ri.oob = 0; timeout_count = 0;
+  li.bc = li.upl = li.dnl = 0; ri.oob = 0; timeout_count = 0;
   for (;;) {
     FD_SET(cs, &rfds); FD_SET(ss, &rfds);
     if (ri.oob == 0) {
@@ -154,7 +195,7 @@ void relay(int cs, int ss)
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
 	else
-	  bc += wc; dnl += wc;
+	  li.bc += wc; li.dnl += wc;
 
 	FD_CLR(ss, &rfds);
       }
@@ -163,7 +204,7 @@ void relay(int cs, int ss)
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
 	else
-	  bc += wc; dnl += wc;
+	  li.bc += wc; li.dnl += wc;
 	FD_CLR(ss, &xfds);
       }
       if (FD_ISSET(cs, &rfds)) {
@@ -171,7 +212,7 @@ void relay(int cs, int ss)
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
 	else
-	  bc += wc; upl += wc;
+	  li.bc += wc; li.upl += wc;
 	FD_CLR(cs, &rfds);
       }
       if (FD_ISSET(cs, &xfds)) {
@@ -179,7 +220,7 @@ void relay(int cs, int ss)
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
 	else
-	  bc += wc; upl += wc;
+	  li.bc += wc; li.upl += wc;
 	FD_CLR(cs, &xfds);
       }
       if (done > 0)
@@ -201,8 +242,9 @@ void relay(int cs, int ss)
   }
   elp.tv_sec = ts.tv_sec - ots.tv_sec;
   elp.tv_usec = ts.tv_usec - ots.tv_usec;
+  li.elp = &elp;
 
-  log_transfer(cs, ss, upl, dnl, &elp);
+  log_transfer(&li);
 
   close(ss);
   close(cs);
@@ -318,7 +360,7 @@ int serv_loop(void *id)
     MUTEX_UNLOCK(mutex_gh0);
 
     i = validate_access(cl_addr, cl_name);
-    if ( i != 1) {
+    if (i < 1) {
       /* access denied */
       close(cs);
       continue;
@@ -370,41 +412,30 @@ int serv_loop(void *id)
   }
 }
 
-int log_transfer(int cs, int ss,
-		 u_long upl, u_long dnl, struct timeval *elapsed)
+int log_transfer(loginfo *li)
 {
-  struct sockaddr_in sa;
   char cs_ip[16], ss_ip[16];
-  u_short cs_port, ss_port;
-  int len;
+  u_short cs_port, ss_port, csa_port, ssa_port;
 
-  /* get socket cs peer name */
-  len = sizeof(struct sockaddr_in);
-  if (getpeername(cs, (struct sockaddr *)&sa, &len) != 0) {
-    cs_ip[0] = '\0';
-    cs_port = 0;
-  } else {
-    if (inet_ntop(AF_INET, &(sa.sin_addr),
+  cs_port = ss_port = csa_port = ssa_port = 0;
+
+  if (inet_ntop(AF_INET, &(li->ca->sin_addr),
 		  cs_ip, sizeof cs_ip) == NULL) {
-      cs_ip[0] = '\0';
-    }
-    cs_port = ntohs(sa.sin_port);
+    cs_ip[0] = '\0';
   }
-  /* get socket ss peer name */
-  len = sizeof(struct sockaddr_in);
-  if (getpeername(ss, (struct sockaddr *)&sa, &len) != 0) {
-    ss_ip[0] = '\0';
-    ss_port = 0;
-  } else {
-    if (inet_ntop(AF_INET, &(sa.sin_addr),
+  if (inet_ntop(AF_INET, &(li->sa->sin_addr),
 		  ss_ip, sizeof ss_ip) == NULL) {
-      ss_ip[0] = '\0';
-    }
-    ss_port = ntohs(sa.sin_port);
+    ss_ip[0] = '\0';
   }
-  msg_out(norm, "== %s:%u %s:%u up: %u, down: %u,"
-		" elapsed: %u.%06u(sec.)",
-		cs_ip, cs_port, ss_ip, ss_port, upl, dnl,
-		elapsed->tv_sec, elapsed->tv_usec);
+  cs_port = ntohs(li->ca->sin_port);
+  ss_port = ntohs(li->sa->sin_port);
+  csa_port = ntohs(li->caa->sin_port);
+  ssa_port = ntohs(li->saa->sin_port);
+
+  msg_out(norm, "%s:%u:%u %s:%u:%u %u(%u/%u) %u.%06u",
+	  cs_ip, cs_port, csa_port,
+	  ss_ip, ss_port, ssa_port,
+	  li->bc, li->upl, li->dnl,
+	  li->elp->tv_sec, li->elp->tv_usec);
   return(0);
 }

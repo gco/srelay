@@ -37,6 +37,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /* prototypes */
 int sock_init __P((struct sockaddr_in *));
 
+char **str_serv_sock; /* to use tcp_wrappers validation */
 int *serv_sock;       /* must be NULLed at startup */
 int serv_sock_ind;
 
@@ -54,11 +55,13 @@ int sock_init(struct sockaddr_in *sa)
   }
   if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof on) < 0) {
     perror("setsockopt: SO_REUSEADDR");
+    close(s);
     return(-1);
   }
 
   if (bind(s, (struct sockaddr *)sa, sizeof(struct sockaddr_in)) < 0) {
     perror("bind");
+    close(s);
     return(-1);
   }
   listen(s, 64);
@@ -77,20 +80,33 @@ int serv_init(char *ifs)
     int       fd;
     struct in_addr in;
     u_short port;
+    char    str_addr[15+1+5+1]; /* aaa.bbb.ccc.ddd.ppppp\0 */
   } tmp_tbl[MAX_SOCKS];
+  char str_ip[16], str_port[6];
 
-  if (ifs == NULL || *ifs == NULL) {  /* init table */
+
+  if (ifs == NULL || *ifs == NULL) {
+    /* init table is initiated. */
     if (serv_sock != NULL) {
       free(serv_sock);
     }
+    if (str_serv_sock != NULL) {
+      for (i = 0; i < serv_sock_ind; i++) {
+	if (str_serv_sock[i] != NULL) {
+	  free(str_serv_sock[i]);
+	}
+      }
+      free(str_serv_sock);
+    }
     serv_sock = NULL;
+    str_serv_sock = NULL;
     serv_sock_ind = 0;
     FD_ZERO(&allsock);
     maxsock = 0;
     return(0);
   }
 
-  for ( p = q = ifs; q != NULL; p=q+1) {
+  for (p = q = ifs; q != NULL; p=q+1) {
     if (p == NULL || *p == NULL)
       break;
 
@@ -133,7 +149,11 @@ int serv_init(char *ifs)
     } else {
       if ((h = gethostbyname(hobj)) == NULL) {
 	/* cannot determin serv ip */
-	herror("gethostbyname");
+#if (! SOLARIS )
+	/* solaris defines hstrerror as non-global */
+	msg_out(warn, "gethostbyname: %s - %s\n",
+		hobj, hstrerror(h_errno));
+#endif
 	free(hobj);
 	continue;
       }
@@ -157,6 +177,23 @@ int serv_init(char *ifs)
       tmp_tbl[serv_sock_ind].in.s_addr = sa.sin_addr.s_addr;
       tmp_tbl[serv_sock_ind].port = sa.sin_port;
       tmp_tbl[serv_sock_ind].fd = s;
+      if (inet_ntop(AF_INET, &sa.sin_addr, str_ip, sizeof(str_ip)) == NULL
+	  || (len = strlen(str_ip) + 1) < sizeof("0.0.0.0")
+	  || len > sizeof("123.123.123.123")) {
+	/* string conversion failed */
+	str_ip[0] = '\0';
+      }
+      if (snprintf(str_port, sizeof(str_port),
+		   "%d", ntohs(sa.sin_port)) >= sizeof(str_port)) {
+	/* string conversion failed */
+	str_port[0] = '\0';
+      }
+      strncpy(tmp_tbl[serv_sock_ind].str_addr, str_ip, sizeof(str_ip));
+      tmp_tbl[serv_sock_ind].str_addr[strlen(str_ip)] = '.';
+      tmp_tbl[serv_sock_ind].str_addr[strlen(str_ip)+1] = '\0';
+      strncat(tmp_tbl[serv_sock_ind].str_addr,
+	      str_port, sizeof(tmp_tbl[serv_sock_ind].str_addr));
+
       FD_SET(s, &allsock);
       maxsock = MAX(s, maxsock);
       serv_sock_ind++;
@@ -171,24 +208,50 @@ int serv_init(char *ifs)
   }
 
   if ((serv_sock = (int *)malloc(sizeof(int) * serv_sock_ind)) != NULL) {
-    for ( i=0; i < serv_sock_ind; i++ ) {
+    for (i = 0; i < serv_sock_ind; i++ ) {
       serv_sock[i] = tmp_tbl[i].fd;
     }
-    return(0);
+  } else {
+    /* malloc failed */
+    return(-1);
   }
-  /* malloc failed */
-  return(-1);
+
+  if ((str_serv_sock =
+       (char **)malloc(sizeof(char *) * serv_sock_ind)) != NULL) {
+    for (i = 0; i < serv_sock_ind; i++) {
+      str_serv_sock[i] = strdup(tmp_tbl[i].str_addr);
+    }
+  } else {
+    /* malloc failed */
+    return(-1);
+  }
+  return(0);
 }
 
 #if 0
+/*
+  to test ...
+  ./configure
+  make init.o
+  make util.o
+  cc -o test-ini init.o util.o
+  ./test-ini 123.123.123.123/1111,localhost
+*/
+int cur_child;
+char *pidfile;
 
 int main(int argc, char **argv) {
+
+  int i;
 
   if (argc > 1) {
     serv_init(NULL);
     serv_init(argv[1]);
   } else {
     fprintf(stderr,"need args\n");
+  }
+  for (i = 0; i < serv_sock_ind; i++) {
+    fprintf(stdout, "%d: %s\n", serv_sock[i], str_serv_sock[i]);
   }
   return(0);
 }

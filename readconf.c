@@ -36,7 +36,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /* prototypes */
 char *skip   __P((char *));
 char *spell  __P((char *));
-void add_entry __P((struct rtbl *, struct rtbl *));
+void add_entry __P((struct rtbl *, struct rtbl *, int));
 void parse_err __P((int, int, char *));
 
 #define MAXLINE  1024
@@ -54,7 +54,7 @@ void parse_err __P((int, int, char *));
 #define PORT_MAX  65535
 
 struct rtbl *proxy_tbl;    /* proxy routing table */
-int proxy_tbl_ind = 0;     /* next entry indicator */
+int proxy_tbl_ind;         /* next entry indicator */
 
 /*
   config format:
@@ -87,6 +87,8 @@ int readconf(FILE *fp)
   struct rtbl tmp_tbl[MAX_ROUTE];
   char buf[MAXLINE];
   struct hostent *h;
+  struct rtbl *new_proxy_tbl;
+  int new_proxy_tbl_ind = 0;
 
   while (fp && fgets(buf, MAXLINE-1, fp) != NULL) {
     memset(&tmp, 0, sizeof(struct rtbl));
@@ -202,7 +204,7 @@ int readconf(FILE *fp)
     }
 
     if ((p = skip(p)) == NULL) {        /* no proxy entry */
-      add_entry(&tmp, &tmp_tbl[proxy_tbl_ind++]);
+      add_entry(&tmp, tmp_tbl, new_proxy_tbl_ind++);
       continue;
     }
 
@@ -218,7 +220,7 @@ int readconf(FILE *fp)
     /* proxy port */
     if ((p = skip(p)) == NULL) { /* proxy-port is ommited */
       tmp.port = SOCKS_PORT;     /* defaults to socks port */
-      add_entry(&tmp, &tmp_tbl[proxy_tbl_ind++]);
+      add_entry(&tmp, tmp_tbl, new_proxy_tbl_ind++);
       /* remaining data is ignored */
       continue;
     } else {
@@ -228,23 +230,31 @@ int readconf(FILE *fp)
 	parse_err(warn, n, "parse proxy port number.");
 	continue;
       }
-      add_entry(&tmp, &tmp_tbl[proxy_tbl_ind++]);
+      add_entry(&tmp, tmp_tbl, new_proxy_tbl_ind++);
     }
   }
 
-  if ( proxy_tbl_ind <= 0 ) { /* no valid entries */
+  if ( new_proxy_tbl_ind <= 0 ) { /* no valid entries */
     parse_err(warn, n, "no valid entries found. using default.");
-    proxy_tbl_ind = 1;
+    new_proxy_tbl_ind = 1;
     memset(tmp_tbl, 0, sizeof(struct rtbl));
     tmp_tbl[0].port_l = PORT_MIN; tmp_tbl[0].port_h = PORT_MAX;
   }
+
   /* allocate suitable memory space to proxy_tbl */
-  proxy_tbl = (struct rtbl *)malloc(sizeof(struct rtbl) * proxy_tbl_ind);
-  if ( proxy_tbl == (struct rtbl *)0 ) {
+  new_proxy_tbl = (struct rtbl *)malloc(sizeof(struct rtbl)
+					* new_proxy_tbl_ind);
+  if ( new_proxy_tbl == (struct rtbl *)0 ) {
+    /* malloc error */
     return(-1);
   }
-  memcpy(proxy_tbl, tmp_tbl,
-	 sizeof(struct rtbl) * proxy_tbl_ind);
+  memcpy(new_proxy_tbl, tmp_tbl,
+	 sizeof(struct rtbl) * new_proxy_tbl_ind);
+  if (proxy_tbl != NULL) { /* may holds previous table */
+    free(proxy_tbl);
+  }
+  proxy_tbl     = new_proxy_tbl;
+  proxy_tbl_ind = new_proxy_tbl_ind;
   return(0);
 }
 
@@ -270,15 +280,15 @@ char *spell(char *s) {
   return(s);
 }
 
-void add_entry(struct rtbl *r, struct rtbl *t)
+void add_entry(struct rtbl *r, struct rtbl *t, int ind)
 {
-  if (proxy_tbl_ind >= MAX_ROUTE) {
+  if (ind >= MAX_ROUTE) {
     /* error in add_entry */
     return;
   }
   /* convert dest addr to dest network address */
   r->dest.s_addr &= r->mask.s_addr;
-  memcpy(t, r, sizeof(struct rtbl));
+  memcpy(&t[ind], r, sizeof(struct rtbl));
 }
 
 void parse_err(int sev, int line, char *msg)

@@ -54,6 +54,7 @@ int max_child;
 int cur_child;
 
 int fg;        /* foreground operation */
+int bind_restrict = 1; /* socks bind port is restricted */
 
 /* authentication method priority table */
 char method_tab[10];
@@ -76,10 +77,11 @@ void usage()
 	  "\t-o min\tidle timeout minutes\n"
 	  "\t-p file\tpid file\n"
 	  "\t-a np\tauth methods n: no, p:pass\n"
-	  "\t-f\trun foreground\n"
+	  "\t-f\trun into foreground\n"
 	  "\t-r\tresolve client name in log\n"
 	  "\t-s\tforce logging to syslog\n"
 	  "\t-t\tdisable threading\n"
+	  "\t-b\tavoid BIND port restriction\n"
 	  "\t-v\tshow version and exit\n"
 	  "\t-h\tshow this help and exit\n");
   exit(1);
@@ -113,9 +115,14 @@ int main(int ac, char **av)
 
   serv_init(NULL);
 
+  proxy_tbl = NULL;
+  proxy_tbl_ind = 0;
+
+  method_num = 0;
+
   uid = getuid();
 
-  while((ch = getopt(ac, av, "a:c:i:m:o:p:frstvh?")) != -1)
+  while((ch = getopt(ac, av, "a:c:i:m:o:p:frstbvh?")) != -1)
     switch (ch) {
     case 'a':
       if (optarg != NULL) {
@@ -143,6 +150,10 @@ int main(int ac, char **av)
 	  }
 	}
       }
+      break;
+
+    case 'b':
+      bind_restrict = 0;
       break;
 
     case 'c':
@@ -211,11 +222,6 @@ int main(int ac, char **av)
   ac -= optind;
   av += optind;
 
-  if (method_num == 0) { /* no authmethod specified */
-    method_tab[0] = S5ANOAUTH;
-    method_num++;
-  }
-
   fp = fopen(config, "r");
   if (readconf(fp) != 0) {
     /* readconf error */
@@ -231,6 +237,7 @@ int main(int ac, char **av)
       msg_out(crit, "fork: %m");
       exit(1);
     case 0:
+      /* child */
       pid = setsid();
       if (pid == -1) {
 	msg_out(crit, "setsid: %m");
@@ -264,6 +271,8 @@ int main(int ac, char **av)
   setsignal(SIGPIPE, SIG_IGN);
   setsignal(SIGUSR1, SIG_IGN);
   setsignal(SIGUSR2, SIG_IGN);
+  setsignal(SIGINT, SIG_IGN);
+  setsignal(SIGTERM, cleanup);
 
 #ifdef USE_THREAD
   if ( threading ) {
@@ -303,18 +312,14 @@ int main(int ac, char **av)
         exit(1);
     }
     main_thread = pthread_self();   /* store main thread ID */
-    setsignal(SIGHUP, SIG_IGN);
-    setsignal(SIGINT, SIG_IGN);
-    setsignal(SIGTERM, cleanup);
+    setsignal(SIGHUP, reload);
     for (;;) {
       pause();
     }
   } else {
 #endif
-    setsignal(SIGHUP, SIG_IGN);
-    setsignal(SIGINT, SIG_IGN);
+    setsignal(SIGHUP, reload);
     setsignal(SIGCHLD, reapchild);
-    setsignal(SIGTERM, cleanup);
     setegid(PROCGID);
     seteuid(PROCUID);
     msg_out(norm, "Starting: MAX_CH(%d)", max_child);

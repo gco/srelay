@@ -49,7 +49,7 @@ int checkpasswd(char *, char *);
 int auth_pwd_server(int s)
 {
   char buf[512];
-  int  r, len, i;
+  int  r, len;
   char user[256];
   char pass[256];
   struct sockaddr_in client;
@@ -113,21 +113,15 @@ int auth_pwd_server(int s)
       client_ip[0] = '\0';
     }
   }
-  msg_out(norm, "v5 %s u/p auth user %s %s.", client_ip,
+  msg_out(norm, "%s 5-U/P_AUTH %s %s.", client_ip,
 	  user, r == 0 ? "accepted" : "denied");
 
   /* erace uname and passwd storage */
-  for (i=0; i < strlen(user); i++) {
-    user[i] = '\0';
-  }
-  for (i=0; i < strlen(pass); i++) {
-    pass[i] = '\0';
-  }
-  if (r == 0) {
-    code = 0;
-  } else {
-    code = -1;
-  }
+  memset(user, 0, sizeof(user));
+  memset(pass, 0, sizeof(pass));
+
+  code = ( r == 0 ? 0 : -1 );
+
   /* reply to client */
   buf[0] = 0x01;  /* sub negotiation version */
   buf[1] = code & 0xff;  /* grant or not */
@@ -162,17 +156,17 @@ int auth_pwd_client(int s, int ind)
 
   if ( r != 0) {
     /* no matching entry found or error */
-    return(-1);
+    goto err_ret;
   }
   ulen = strlen(user);
   if ( ulen < 1 || ulen > 255) {
     /* invalid user name length */
-    return(-1);
+    goto err_ret;
   }
   plen = strlen(pass);
   if ( plen < 1 || plen > 255 ) {
     /* invalid password length */
-    return(-1);
+    goto err_ret;
   }
   /* build auth data */
   buf[0] = 0x01;
@@ -184,19 +178,23 @@ int auth_pwd_client(int s, int ind)
   r = timerd_write(s, buf, 3+ulen+plen, TIMEOUTSEC);
   if (r < 3+ulen+plen) {
     /* cannot write */
-    return(-1);
+    goto err_ret;
   }
 
   /* get server reply */
   r = timerd_read(s, buf, 2, TIMEOUTSEC);
   if (r < 2) {
     /* cannot read */
-    return(-1);
+    goto err_ret;
   }
   if (buf[0] == 0x01 && buf[1] == 0) {
     /* username/passwd auth succeded */
     return(0);
   }
+ err_ret:
+  /* erace uname and passwd storage */
+  memset(user, 0, sizeof(user));
+  memset(pass, 0, sizeof(pass));
   return(-1);
 }
 

@@ -67,7 +67,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # include <sys/resource.h>
 #endif
 
-#define version  "srelay 0.1 2001/10/16 (Tomo.M)"
+#define version  "srelay 0.3 2002/06/14 (Tomo.M)"
 
 #define CONFIG    "/usr/local/etc/srelay.conf"
 #define PWDFILE   "/usr/local/etc/srelay.passwd"
@@ -77,7 +77,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #define S4DEFUSR  "user"
 
-#define BUFSIZE    2048
+#define BUFSIZE    8192
 
 #define PROCUID  65534
 #define PROCGID  65534
@@ -109,6 +109,11 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /* default maximum number of child process */
 #define MAX_CHILD     100
+
+/* Solaris did not define this */
+#ifndef IPPORT_RESERVEDSTART
+# define IPPORT_RESERVEDSTART 600
+#endif
 
 #ifdef USE_THREAD
 # include <pthread.h>
@@ -162,6 +167,7 @@ enum { norm=0, warn, crit };
 #define S5AGSSAPI     1
 #define S5AUSRPAS     2
 #define S5ACHAP       3
+#define S5ANOTACC     0xff
 
 /*
   struct rtbl:
@@ -215,14 +221,17 @@ typedef void            (*sigfunc_t)();
  */
 
 /* from main.c */
+extern char *config;
 extern char *ident;
 extern char *pidfile;
 extern int max_child;
 extern int cur_child;
 extern char method_tab[];
 extern int method_num;
+extern int bind_restrict;
 
 /* from init.c */
+extern char **str_serv_sock;
 extern int *serv_sock;
 extern int serv_sock_ind;
 extern int maxsock;
@@ -276,6 +285,7 @@ extern int settimer __P((int));
 extern void timeout __P((int));
 extern void reapchild __P((int));
 extern void cleanup __P((int));
+extern void reload __P((int));
 extern sigfunc_t setsignal __P((int, sigfunc_t));
 extern int blocksignal __P((int));
 extern int releasesignal __P((int));

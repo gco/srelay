@@ -146,6 +146,27 @@ void cleanup(int signo)
   exit(0);
 }
 
+void reload(int signo)
+{
+  FILE *fp;
+
+#ifdef USE_THREAD
+  if (threading) {
+    if (! pthread_equal(pthread_self(), main_thread)) {
+      /* do nothing */
+      return;
+    }
+  }
+#endif
+  msg_out(norm, "reloading initiated ...");
+  if ((fp = fopen(config, "r")) != NULL) {
+    if (readconf(fp) != 0)
+      msg_out(warn, "reloading failed.");
+    fclose(fp);
+  }
+  msg_out(norm, "reloading done.");
+}
+
 sigfunc_t setsignal(int sig, sigfunc_t handler)
 {
   struct sigaction n, o;

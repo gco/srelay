@@ -76,6 +76,7 @@ void s4err_rep __P((int, int));
 int proto_socks5 __P((int));
 int s5direct_conn __P((struct socks_req *));
 int s5auth_s __P((int));
+int s5auth_s_rep __P((int, int));
 int s5auth_c __P((int, int));
 void s5err_rep __P((int, int));
 int proxy_connect __P((int, struct socks_req *));
@@ -193,7 +194,7 @@ int log_request(int v, struct socks_req *sr, int dp)
   char  *host = "(?)";
   char  *user = "-";
   char  *ats[] =  {"ipv4", "fqdn:", "ipv6", "?"};
-  char  *reqs[] = {"CONN", "BIND", "UDPA", "?"};
+  char  *reqs[] = {"CON", "BND", "UDP", "?"};
   int   atmap[] = {3, 0, 3, 1, 2};
   int   reqmap[] = {3, 0, 1, 2};
   int   len;
@@ -225,16 +226,35 @@ int log_request(int v, struct socks_req *sr, int dp)
     }
   }
 
-  msg_out(norm, "v%d %s %s:%d %s:%d(%s%s) %s %s%s.",
+  msg_out(norm, "%s:%d %d-%s %s:%d(%s%s) %s %s%s.",
+		client_ip, client_port,
 		v, reqs[reqmap[sr->req]],
-		client_ip, client_port, dest_ip,
-	        dest_port,
+	         dest_ip, dest_port,
 		ats[atmap[sr->atype]],
 	        sr->atype == 3 ? host : "",
 	        user,
 		dp == 0 ? "direct" : "relay=",
 	        proxy_ip );
   return(0);
+}
+
+int bind_sock(int s, struct sockaddr_in *sa)
+{
+  int len = sizeof(struct sockaddr_in);
+  u_short port;
+  int r;
+
+  port = ntohs(sa->sin_port);
+  if ( bind_restrict ) {
+    if (port < IPPORT_RESERVEDSTART) {
+      sa->sin_port = 0;
+    }
+  }
+  if (port > 0 && port < IPPORT_RESERVED)
+    seteuid(0);
+  r = bind(s, (struct sockaddr *)sa, len);
+  seteuid(PROCUID);
+  return(r);
 }
 
 /*
@@ -259,7 +279,14 @@ int proto_socks(int s)
 
   switch (buf[0]) {
   case 4:
-    r = proto_socks4(s);
+    if (method_num > 0) {
+      /* this implies this server is working in V5 mode */
+      s4err_rep(s, S4EGENERAL);
+      msg_out(warn, "V4 request is not accepted.");
+      r = -1;
+    } else {
+      r = proto_socks4(s);
+    }
     break;
   case 5:
     if ((r = s5auth_s(s)) == 0) {
@@ -428,7 +455,7 @@ int s4direct_conn(struct socks_req *sr)
 {
   int cs=0, acs;
   int r, len;
-  struct sockaddr_in my;
+  struct sockaddr_in my, cl;
   struct in_addr bindaddr;
   char   buf[512];
 
@@ -474,21 +501,35 @@ int s4direct_conn(struct socks_req *sr)
       s4err_rep(sr->s, S4EGENERAL);
       return(-1);
     }
+
+    /*
+      BIND port selection priority.
+      1. requested port. (assuming dest->sin_port as requested port)
+      2. clients src port.
+      3. free port.
+    */
     my.sin_port = sr->dest->sin_port;   /* set requested bind port */
-    if (ntohs(my.sin_port) < 1024)
-      seteuid(0);
-    r = bind(acs, (struct sockaddr *)&my, len);
-    seteuid(PROCUID);
-    if ( r == -1) {
-      /* bind failed for requested port */
-      my.sin_port = 0;        /* try bind to free-port */
-      if (bind(acs, (struct sockaddr *)&my, len) == -1) {
-	/* bind failed either */
-	s4err_rep(sr->s, S4EGENERAL);
-	close(acs);
-	return(-1);
-      }
+    if (bind_sock(acs, &my) != -1)
+      goto s4bind_ok;
+
+    /* bind failed for requested port */
+    len = sizeof(cl);
+    if (getpeername(sr->s, (struct sockaddr *)&cl, &len) == 0) {
+      my.sin_port = cl.sin_port;
+      if (bind_sock(acs, &my) != -1)
+	goto s4bind_ok;
     }
+
+    /* try bind to free-port */
+    my.sin_port = 0;
+    if (bind_sock(acs, &my) == -1) {
+      /* bind failed either */
+      s4err_rep(sr->s, S4EGENERAL);
+      close(acs);
+      return(-1);
+    }
+
+  s4bind_ok:
     listen(acs, 64);
     /* get my socket name again to acquire an
        actual listen port number */
@@ -697,7 +738,7 @@ int s5direct_conn(struct socks_req *sr)
 {
   int cs=0, acs;
   int r, len;
-  struct sockaddr_in my;
+  struct sockaddr_in my, cl;
   struct in_addr bindaddr;
   char buf[512];
 
@@ -755,21 +796,27 @@ int s5direct_conn(struct socks_req *sr)
       return(-1);
     }
     my.sin_port = sr->dest->sin_port;   /* set requested bind port */
-    if (ntohs(my.sin_port) < 1024) {
-      seteuid(0);
+    if (bind_sock(acs, &my) != -1)
+      goto s5bind_ok;
+
+    /* bind failed for requested port */
+    len = sizeof(cl);
+    if (getpeername(sr->s, (struct sockaddr *)&cl, &len) == 0) {
+      my.sin_port = cl.sin_port;
+      if (bind_sock(acs, &my) != -1)
+	goto s5bind_ok;
     }
-    r = bind(acs, (struct sockaddr *)&my, len);
-    seteuid(PROCUID);
-    if ( r == -1) {
-      /* bind failed for requested port */
-      my.sin_port = 0;        /* try bind to free-port */
-      if (bind(acs, (struct sockaddr *)&my, len) == -1) {
-	/* bind failed either */
-	s5err_rep(sr->s, S5EGENERAL);
-	close(acs);
-	return(-1);
-      }
+
+    /* try bind to free-port */
+    my.sin_port = 0;
+    if (bind_sock(acs, &my) == -1) {
+      /* bind failed either */
+      s5err_rep(sr->s, S5EGENERAL);
+      close(acs);
+      return(-1);
     }
+
+  s5bind_ok:
     listen(acs, 64);
     /* get my socket name again to acquire an
        actual listen port number */
@@ -840,7 +887,7 @@ int s5direct_conn(struct socks_req *sr)
 }
 
 /*
-  socks5 auth negotiate as server.
+  socks5 auth negotiation as server.
 */
 int s5auth_s(int s)
 {
@@ -852,42 +899,47 @@ int s5auth_s(int s)
   r = timerd_read(s, buf, 2, TIMEOUTSEC);
   if ( r < 2 ) {
     /* cannot read */
-    close(s);
+    s5auth_s_rep(s, S5ANOTACC);
     return(-1);
   }
 
   len = buf[1];
   if ( len < 0 || len > 255 ) {
-    /* invalid number of method */
-    close(s);
+    /* invalid number of methods */
+    s5auth_s_rep(s, S5ANOTACC);
     return(-1);
   }
 
   r = timerd_read(s, buf, len, TIMEOUTSEC);
-  for (i = 0; i < method_num; i++) {
-    for (j = 0; j < r; j++) {
-      if ( buf[j] == method_tab[i] ) {
-	method = method_tab[i];
+  if (method_num == 0) {
+    for (i = 0; i < r; i++) {
+      if (buf[i] == S5ANOAUTH) {
+	method = S5ANOAUTH;
 	done = 1;
 	break;
       }
     }
-    if (done)
-      break;
+  } else {
+    for (i = 0; i < method_num; i++) {
+      for (j = 0; j < r; j++) {
+	if (buf[j] == method_tab[i]){
+	  method = method_tab[i];
+	  done = 1;
+	  break;
+	}
+      }
+      if (done)
+	break;
+    }
   }
   if (!done) {
     /* no suitable method found */
-    method = 0xff;
+    method = S5ANOTACC;
   }
-  /* reply to client */
-  buf[0] = 0x05;   /* socks version */
-  buf[1] = method & 0xff;   /* authentication method */
-  r = timerd_write(s, buf, 2, TIMEOUTSEC);
-  if (r < 2) {
-    /* write error */
-    close(s);
+
+  if (s5auth_s_rep(s, method) < 0)
     return(-1);
-  }
+
   switch (method) {
   case S5ANOAUTH:
     /* heh, do nothing */
@@ -901,14 +953,34 @@ int s5auth_s(int s)
     }
   default:
     /* other methods are unknown or not implemented */
-    close(s);      
+    close(s);
     return(-1);
   }
   return(0);
 }
 
 /*
-  socks5 auth negotiate as client.
+  Auth method negotiation reply
+*/
+int s5auth_s_rep(int s, int method)
+{
+  char buf[2];
+  int r;
+
+  /* reply to client */
+  buf[0] = 0x05;   /* socks version */
+  buf[1] = method & 0xff;   /* authentication method */
+  r = timerd_write(s, buf, 2, TIMEOUTSEC);
+  if (r < 2) {
+    /* write error */
+    close(s);
+    return(-1);
+  }
+  return(0);
+}
+
+/*
+  socks5 auth negotiation as client.
 */
 int s5auth_c(int s, int ind)
 {
