@@ -1,5 +1,6 @@
 /*
   srelay.h:
+  $Id$
          common definitions.
 
 Copyright (C) 2001 Tomo.M (author).
@@ -67,7 +68,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # include <sys/resource.h>
 #endif
 
-#define version  "srelay 0.3.1 2002/08/16 (Tomo.M)"
+#define version  "srelay 0.3.2 2002/12/06 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"
@@ -275,7 +276,7 @@ extern int serv_loop __P((void *));
 
 /* socks.c */
 int wait_for_read __P((int, long));
-ssize_t timerd_read __P((int, char *, size_t, int));
+ssize_t timerd_read __P((int, char *, size_t, int, int));
 ssize_t timerd_write __P((int, char *, size_t, int));
 extern int proto_socks __P((int));
 

@@ -1,5 +1,6 @@
 /*
   socks.c:
+  $Id$
 
 Copyright (C) 2001 Tomo.M (author).
 All rights reserved.
@@ -106,15 +107,18 @@ int wait_for_read(int s, long sec)
   case 0:             /* timed out */
     return(0);
   default:            /* ok */
-    return(s);
+    if (FD_ISSET(s, &fds))
+      return(s);
+    else
+      return(-1);
   }
 }
 
-ssize_t timerd_read(int s, char *buf, size_t len, int sec)
+ssize_t timerd_read(int s, char *buf, size_t len, int sec, int flags)
 {
   ssize_t r = -1;
   settimer(sec);
-  r = recvfrom(s, buf, len, 0, 0, 0);
+  r = recvfrom(s, buf, len, flags, 0, 0);
   settimer(0);
   return(r);
 }
@@ -267,11 +271,7 @@ int proto_socks(int s)
   int r;
   int on = 1;
 
-  if (wait_for_read(s, TIMEOUTSEC) <= 0) {
-    close(s);
-    return(-1);
-  }
-  r = recvfrom(s, buf, sizeof(buf), MSG_PEEK, 0, 0);
+  r = timerd_read(s, buf, sizeof(buf), TIMEOUTSEC, MSG_PEEK);
   if ( r <= 0 ) {
     close(s);
     return(-1);
@@ -332,7 +332,7 @@ int proto_socks4(int s)
   sr.hostname = hostname;
   sr.username = username;
 
-  r = timerd_read(s, buf, 1+1+2+4, TIMEOUTSEC);
+  r = timerd_read(s, buf, 1+1+2+4, TIMEOUTSEC, 0);
   if (r < 1+1+2+4) {    /* cannt read request */
     s4err_rep(s, S4EGENERAL);
     return(-1);
@@ -357,7 +357,7 @@ int proto_socks4(int s)
   }
 
   /* read client user name in request */
-  r = recvfrom(s, buf, sizeof(buf), MSG_PEEK, 0, 0);
+  r = timerd_read(s, buf, sizeof(buf), TIMEOUTSEC, MSG_PEEK);
   if ( r < 1 ) {
     /* error or client sends EOF */
     s4err_rep(s, S4EGENERAL);
@@ -375,7 +375,7 @@ int proto_socks4(int s)
     return(-1);
   }
 
-  r = timerd_read(s, buf, r+1, TIMEOUTSEC);
+  r = timerd_read(s, buf, r+1, TIMEOUTSEC, 0);
   if ( r > 0 && r <= 255 ) {    /* r should be 1 <= r <= 255 */
     len = r - 1;
     strncpy(username, buf, len);
@@ -390,7 +390,7 @@ int proto_socks4(int s)
   len = 0;
   if ( sr.atype == S4ATFQDN ) {
     /* request is socks4-A specific */
-    r = timerd_read(s, buf, sizeof buf, TIMEOUTSEC);
+    r = timerd_read(s, buf, sizeof buf, TIMEOUTSEC, 0);
     if ( r > 0 && r <= 256 ) {   /* r should be 1 <= r <= 256 */
       len = r - 1;
       strncpy(hostname, buf, len);
@@ -553,12 +553,7 @@ int s4direct_conn(struct socks_req *sr)
       close(acs);
       return(-1);
     }
-    if ((cs = wait_for_read(acs, TIMEOUTSEC)) <= 0 ||
-	cs != acs) {
-      /* cs == 0:   time out
-	 cs == -1:  some error
-	 cs != acs:  why ???
-      */
+    if (wait_for_read(acs, TIMEOUTSEC) <= 0) {
       s4err_rep(sr->s, S4EGENERAL);
       close(acs);
       return(-1);
@@ -628,12 +623,7 @@ int proto_socks5(int s)
   sr.hostname = hostname;
 
   /* peek first 5 bytes of request. */
-  if (wait_for_read(s, TIMEOUTSEC) <= 0) {
-    /* timeout or error occuerd during reading client */
-    close(s);
-    return(-1);
-  }
-  r = recvfrom(s, buf, sizeof(buf), MSG_PEEK, 0, 0);
+  r = timerd_read(s, buf, sizeof(buf), TIMEOUTSEC, MSG_PEEK);
   if ( r < 5 ) {
     /* cannot read client request */
     close(s);
@@ -655,7 +645,7 @@ int proto_socks5(int s)
   sr.atype = buf[3];  /* address type field */
   switch(sr.atype) {
   case S5ATIPV4:  /* IPv4 address */
-    r = timerd_read(s, buf, 4+4+2, TIMEOUTSEC);
+    r = timerd_read(s, buf, 4+4+2, TIMEOUTSEC, 0);
     if (r < 4+4+2) {     /* cannot read request (why?) */
       s5err_rep(s, S5EGENERAL);
       return(-1);
@@ -669,7 +659,7 @@ int proto_socks5(int s)
       s5err_rep(s, S5EINVADDR);
       return(-1);
     }
-    r = timerd_read(s, buf, 4+1+len+2, TIMEOUTSEC);
+    r = timerd_read(s, buf, 4+1+len+2, TIMEOUTSEC, 0);
     if ( r < 4+1+len+2 ) {  /* cannot read request (why?) */
       s5err_rep(s, S5EGENERAL);
       return(-1);
@@ -842,12 +832,7 @@ int s5direct_conn(struct socks_req *sr)
       close(acs);
       return(-1);
     }
-    if ((cs = wait_for_read(acs, TIMEOUTSEC)) <= 0 ||
-	cs != acs) {
-      /* cs == 0:   time out
-	 cs == -1:  some error
-	 cs != acs:  why ???
-      */
+    if (wait_for_read(acs, TIMEOUTSEC) <= 0) {
       s5err_rep(sr->s, S5EGENERAL);
       close(acs);
       return(-1);
@@ -896,7 +881,7 @@ int s5auth_s(int s)
   int method=0, done=0;
 
   /* auth method negotiation */
-  r = timerd_read(s, buf, 2, TIMEOUTSEC);
+  r = timerd_read(s, buf, 2, TIMEOUTSEC, 0);
   if ( r < 2 ) {
     /* cannot read */
     s5auth_s_rep(s, S5ANOTACC);
@@ -910,7 +895,7 @@ int s5auth_s(int s)
     return(-1);
   }
 
-  r = timerd_read(s, buf, len, TIMEOUTSEC);
+  r = timerd_read(s, buf, len, TIMEOUTSEC, 0);
   if (method_num == 0) {
     for (i = 0; i < r; i++) {
       if (buf[i] == S5ANOAUTH) {
@@ -999,7 +984,7 @@ int s5auth_c(int s, int ind)
     return(-1);
   }
 
-  r = timerd_read(s, buf, 2, TIMEOUTSEC);
+  r = timerd_read(s, buf, 2, TIMEOUTSEC, 0);
   if ( r < 2 ) {
     /* cannot read */
     close(s);
@@ -1250,7 +1235,7 @@ int proxy_reply(int v, int cs, int ss, int req)
   case 4:
     while (c-- > 0) {
       /* read ver 4 reply */
-      r = timerd_read(ss, buf, sizeof buf, TIMEOUTSEC);
+      r = timerd_read(ss, buf, sizeof buf, TIMEOUTSEC, 0);
       if ( r < 8 ) {   /* should be 8 is ver 4 specific. */
 	/* cannot read server reply */
 	return(-1);
@@ -1276,7 +1261,7 @@ int proxy_reply(int v, int cs, int ss, int req)
   case 5:
     while (c-- > 0) {
       /* read ver 5 reply */
-      r = timerd_read(ss, buf, sizeof buf, TIMEOUTSEC);
+      r = timerd_read(ss, buf, sizeof buf, TIMEOUTSEC, 0);
       if ( r < 7 ) {   /* should be 10 or more */
 	/* cannot read server reply */
 	return(-1);

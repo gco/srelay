@@ -1,5 +1,6 @@
 /*
   auth-pwd.c
+  $Id$
 
 Copyright (C) 2001 Tomo.M (author).
 All rights reserved.
@@ -54,10 +55,7 @@ int auth_pwd_server(int s)
   char client_ip[16];
   int  code = 0;
 
-  if (wait_for_read(s, TIMEOUTSEC) <= 0) {
-    return(-1);
-  }
-  r = recvfrom(s, buf, sizeof(buf), MSG_PEEK, 0, 0);
+  r = timerd_read(s, buf, sizeof(buf), TIMEOUTSEC, MSG_PEEK);
   if ( r < 2 ) {
     return(-1);
   }
@@ -71,7 +69,7 @@ int auth_pwd_server(int s)
     return(-1);
   }
   /* read username */
-  r = timerd_read(s, buf, 2+len, TIMEOUTSEC);
+  r = timerd_read(s, buf, 2+len, TIMEOUTSEC, 0);
   if (r < 2+len) {
     /* read error */
     return(-1);
@@ -80,7 +78,7 @@ int auth_pwd_server(int s)
   user[len] = '\0';
 
   /* get passwd */
-  r = recvfrom(s, buf, sizeof(buf), MSG_PEEK, 0, 0);
+  r = timerd_read(s, buf, sizeof(buf), TIMEOUTSEC, MSG_PEEK);
   if ( r < 1 ) {
     return(-1);
   }
@@ -90,7 +88,7 @@ int auth_pwd_server(int s)
     return(-1);
   }
   /* read passwd */
-  r = timerd_read(s, buf, 1+len, TIMEOUTSEC);
+  r = timerd_read(s, buf, 1+len, TIMEOUTSEC, 0);
   if (r < 1+len) {
     /* read error */
     return(-1);
@@ -180,7 +178,7 @@ int auth_pwd_client(int s, int ind)
   }
 
   /* get server reply */
-  r = timerd_read(s, buf, 2, TIMEOUTSEC);
+  r = timerd_read(s, buf, 2, TIMEOUTSEC, 0);
   if (r < 2) {
     /* cannot read */
     goto err_ret;

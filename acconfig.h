@@ -1,3 +1,4 @@
+/* $Id$ */
 /* Define if the build system is Solaris */
 #undef SOLARIS
 
