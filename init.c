@@ -35,172 +35,142 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sys/param.h>
 #include "srelay.h"
 
-/* prototypes */
-int sock_init __P((struct sockaddr_in *));
-
 char **str_serv_sock; /* to use tcp_wrappers validation */
-int *serv_sock;       /* must be NULLed at startup */
-int serv_sock_ind;
+int       *serv_sock; /* */
+int       serv_sock_ind;
 
 fd_set allsock;
 int    maxsock;
 int    sig_queue[2];
 
-int sock_init(struct sockaddr_in *sa)
-{
-  int s;
-  int on = 1;
-
-  if ( (s = socket(AF_INET, SOCK_STREAM, IPPROTO_IP)) == -1 ) {
-    perror("socket");
-    return(-1);
-  }
-  if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof on) < 0) {
-    perror("setsockopt: SO_REUSEADDR");
-    close(s);
-    return(-1);
-  }
-
-  if (bind(s, (struct sockaddr *)sa, sizeof(struct sockaddr_in)) < 0) {
-    perror("bind");
-    close(s);
-    return(-1);
-  }
-  listen(s, 64);
-  set_blocking(s);
-  return(s);
-}
-
 int serv_init(char *ifs)
 {
-  int s, i, len, dup;
-  char *p, *q, *r, *hobj;
-  u_short port;
-  struct sockaddr_in sa;
-  struct hostent *h;
-  struct {
-    int       fd;
-    struct in_addr in;
-    u_short port;
-    char    str_addr[15+1+5+1]; /* aaa.bbb.ccc.ddd.ppppp\0 */
-  } tmp_tbl[MAX_SOCKS];
-  char str_ip[16], str_port[6];
-
+  struct addrinfo  hints, *res, *res0;
+  int    error;
+  int    i, dup;
+  size_t len;
+  char   *line, *h, *p, *q;
+  int    s;
+  char   hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
+  char   tmp_str_serv_sock[NI_MAXHOST+NI_MAXSERV+1];
+  const  int on = 1;
 
   if (ifs == NULL || *ifs == '\0') {
-    /* init table is initiated. */
-    if (serv_sock != NULL) {
-      free(serv_sock);
-    }
-    if (str_serv_sock != NULL) {
-      for (i = 0; i < serv_sock_ind; i++) {
-	if (str_serv_sock[i] != NULL) {
-	  free(str_serv_sock[i]);
-	}
-      }
-      free(str_serv_sock);
-    }
-    serv_sock = NULL;
-    str_serv_sock = NULL;
+    str_serv_sock = malloc(sizeof(char *) * MAX_SOCKS);
+    if (str_serv_sock == NULL)
+      return -1;
+    serv_sock = malloc(sizeof(int) * MAX_SOCKS);
+    if (serv_sock == NULL)
+      return -1;
     serv_sock_ind = 0;
-    FD_ZERO(&allsock);
     maxsock = 0;
+    FD_ZERO(&allsock);
     return(0);
   }
 
-  for (p = q = ifs; q != NULL; p=q+1) {
-    if (p == NULL || *p == '\0')
-      break;
+  len = strlen(ifs);
+  if (len > NI_MAXHOST + NI_MAXSERV + 1) {
+    /* ifs line too long */
+    return(-1);
+  }
+  line = strdup(ifs);
+  if (line == NULL) /* malloc failed */
+    return(-1);
 
-    memset(&sa, 0, sizeof sa);
-    sa.sin_family = AF_INET;
+  h = line;
 
-    q = strchr(p, ',');
-    if (q != NULL) {    /* may be more entry */
-      len = q - p;
-    } else {            /* last one */
-      len = strlen(p);
-    }
-    if ((hobj = malloc(len+1)) == NULL) {
-      /* malloc error, fatal */
+  if ( *h == '[' ) {    /* Escaped Numeric address */
+    h++;
+    if ( (q = strchr(h, ']')) == NULL ) {
+      /* Escaped address format error */
+      free(line);
       return(-1);
     }
-    memcpy(hobj, p, len);
-    *(hobj+len) = '\0';
+    *q = '\0';
+    p = q + 1;     /* port assignment may follow */
+    if (*p == ':') /* separator */
+      p++;
+  } else {
+    p = strchr(h, ':');
+    if (p != NULL) /* a port assignment may followed */
+      *p++ = '\0';
+  }
+  if ( p == NULL || *p == '\0' ) {
+    p = "1080";   /* set socks default port */
+  }
 
-    r = strchr(hobj, '/');
-    if (r != NULL) {         /* there may be port assignment */
-      *r++ = '\0';
-      if (*r != '\0') {
-	port = atoi(r);
-	if ( port != 0 ) {
-	  sa.sin_port = htons(port);
-	} else {
-	  /* invalid port, ignore this entry */
-	  free(hobj);
-	  continue;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_flags = AI_PASSIVE;
+  error = getaddrinfo(*h == '\0' ? NULL : h, p, &hints, &res0);
+  free(line);
+  if (error) {
+    /* getaddrinfo error */
+    return(-1);
+  }
+
+  for (res = res0; res && serv_sock_ind < MAX_SOCKS; res = res->ai_next) {
+    error = getnameinfo(res->ai_addr, res->ai_addrlen,
+			hbuf, sizeof(hbuf), sbuf, sizeof(sbuf),
+			NI_NUMERICHOST | NI_NUMERICSERV);
+    if (error) {
+      /* getnameinfo error */
+      return(-1);
+    }
+    strncpy(tmp_str_serv_sock, hbuf, sizeof(hbuf));
+    strncat(tmp_str_serv_sock, "_", strlen("_"));
+    strncat(tmp_str_serv_sock, sbuf, sizeof(sbuf));
+    for ( i = 0, dup = 0; i < serv_sock_ind; i++ ) {
+      if ( str_serv_sock[i] != NULL ) {
+	if (strncmp(tmp_str_serv_sock, str_serv_sock[i],
+		    sizeof(tmp_str_serv_sock)) == 0) {
+	  dup++;
+	  break;
 	}
-      } else {   /* special case; null port */
-	sa.sin_port = htons(SOCKS_PORT);
-      }
-    } else {     /* no port asignment (defaults to SOCKS_PORT)*/
-      sa.sin_port = htons(SOCKS_PORT);
-    }
-    if (*hobj == '\0') {  /* special case; null host */
-      sa.sin_addr.s_addr = INADDR_ANY;
-    } else {
-      if ((h = gethostbyname(hobj)) == NULL) {
-	/* cannot determin serv ip */
-#if (! SOLARIS )
-	/* solaris defines hstrerror as non-global */
-	msg_out(warn, "gethostbyname: %s - %s\n",
-		hobj, hstrerror(h_errno));
-#endif
-	free(hobj);
-	continue;
-      }
-      memcpy(&(sa.sin_addr), h->h_addr_list[0], 4);
-    }
-    free(hobj);
-
-    /* check duplication */
-    for ( i=0, dup=0; i < serv_sock_ind; i++ ) {
-      if (tmp_tbl[i].in.s_addr == sa.sin_addr.s_addr &&
-	  tmp_tbl[i].port == sa.sin_port) { /* it's duplicates */
-	dup++;
-	break;
       }
     }
     if (!dup) {
-      if ((s = sock_init(&sa)) < 0) {
-	/* cannot open socket */
+      s = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+      if ( s < 0 ) {
 	continue;
       }
-      tmp_tbl[serv_sock_ind].in.s_addr = sa.sin_addr.s_addr;
-      tmp_tbl[serv_sock_ind].port = sa.sin_port;
-      tmp_tbl[serv_sock_ind].fd = s;
-      if (inet_ntop(AF_INET, &sa.sin_addr, str_ip, sizeof(str_ip)) == NULL
-	  || (len = strlen(str_ip) + 1) < sizeof("0.0.0.0")
-	  || len > sizeof("123.123.123.123")) {
-	/* string conversion failed */
-	str_ip[0] = '\0';
+      if ( s >= FD_SETSIZE ) {   /* avoid FD_SET overrun */
+	close(s);
+	continue;
       }
-      if (snprintf(str_port, sizeof(str_port),
-		   "%d", ntohs(sa.sin_port)) >= sizeof(str_port)) {
-	/* string conversion failed */
-	str_port[0] = '\0';
+      if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
+		     (char *)&on, sizeof on) < 0) {
+	perror("setsockopt: SO_REUSEADDR");
+	close(s);
+	continue;
       }
-      strncpy(tmp_tbl[serv_sock_ind].str_addr, str_ip, sizeof(str_ip));
-      tmp_tbl[serv_sock_ind].str_addr[strlen(str_ip)] = '.';
-      tmp_tbl[serv_sock_ind].str_addr[strlen(str_ip)+1] = '\0';
-      strncat(tmp_tbl[serv_sock_ind].str_addr,
-	      str_port, sizeof(tmp_tbl[serv_sock_ind].str_addr));
-
+#ifdef IPV6_V6ONLY
+      if (res->ai_family == AF_INET6 &&
+	  setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY,
+		     &on, sizeof(on)) < 0) {
+	perror("setsockopt: IPV6_V6ONLY");
+	close(s);
+	continue;
+      }
+#endif
+      if (bind(s, res->ai_addr, res->ai_addrlen) < 0 ) {
+	close(s);
+	continue;
+      }
+      if (listen(s, 64) < 0) {
+	close(s);
+	continue;
+      }
+      str_serv_sock[serv_sock_ind] = strdup(tmp_str_serv_sock);
+      if (str_serv_sock[serv_sock_ind] == NULL) {
+	/* malloc failed */
+	close(s);
+	continue;
+      }
+      serv_sock[serv_sock_ind] = s;
       FD_SET(s, &allsock);
       maxsock = MAX(s, maxsock);
       serv_sock_ind++;
-      if (serv_sock_ind >= MAX_SOCKS)
-	break;
     }
   }
 
@@ -209,43 +179,18 @@ int serv_init(char *ifs)
     return(-1);
   }
 
-  if ((serv_sock = (int *)malloc(sizeof(int) * serv_sock_ind)) != NULL) {
-    for (i = 0; i < serv_sock_ind; i++ ) {
-      serv_sock[i] = tmp_tbl[i].fd;
-    }
-  } else {
-    /* malloc failed */
-    return(-1);
-  }
-
-  if ((str_serv_sock =
-       (char **)malloc(sizeof(char *) * serv_sock_ind)) != NULL) {
-    for (i = 0; i < serv_sock_ind; i++) {
-      str_serv_sock[i] = strdup(tmp_tbl[i].str_addr);
-    }
-  } else {
-    /* malloc failed */
-    return(-1);
-  }
-
-#ifdef USE_THREAD
-  if ( ! threading ) {
-#endif
-    if (sig_queue[0] > 0) {
-      FD_SET(sig_queue[0], &allsock);
-      maxsock = MAX(sig_queue[0], maxsock);
-    } else {
-      return(-1);
-    }
-#ifdef USE_THREAD
-  }
-#endif
   return(0);
 }
 
 int queue_init()
 {
   if (pipe(sig_queue) != 0) {
+    return(-1);
+  }
+  if (sig_queue[0] > 0) {
+    FD_SET(sig_queue[0], &allsock);
+    maxsock = MAX(sig_queue[0], maxsock);
+  } else {
     return(-1);
   }
   return(0);
@@ -258,10 +203,15 @@ int queue_init()
   make init.o
   make util.o
   cc -o test-ini init.o util.o
-  ./test-ini 123.123.123.123/1111,localhost
+  ./test-ini 123.123.123.123:1111
 */
 int cur_child;
 char *pidfile;
+int threading;
+int pthread_equal(pthread_t x, pthread_t y){return 0;}
+pthread_t main_thread;
+char *config;
+int readconf(FILE *f){return 0;}
 
 int main(int argc, char **argv) {
 

@@ -73,7 +73,7 @@ void usage()
 	  ident);
   fprintf(stderr, "options:\n"
 	  "\t-c file\tconfig file\n"
-	  "\t-i i/f\tlisten interface IP[/PORT][,...]\n"
+	  "\t-i i/f\tlisten interface IP[:PORT]\n"
 	  "\t-m num\tmax child/thread\n"
 	  "\t-o min\tidle timeout minutes\n"
 	  "\t-p file\tpid file\n"
@@ -95,7 +95,6 @@ int main(int ac, char **av)
   pid_t   pid;
   FILE    *fp;
   uid_t   uid;
-  char    *opt_i = NULL;
 #ifdef USE_THREAD
   pthread_t tid;
   pthread_attr_t attr;
@@ -174,7 +173,10 @@ int main(int ac, char **av)
 
     case 'i':
       if (optarg != NULL) {
-	opt_i = strdup(optarg);
+	if (serv_init(optarg) < 0) {
+	  msg_out(crit, "cannot init server socket(-i)\n");
+	  exit(-1);
+	}
       }
       break;
 
@@ -238,6 +240,25 @@ int main(int ac, char **av)
   if (fp)
     fclose(fp);
 
+  if (serv_sock_ind == 0) {   /* no valid ifs yet */
+    if (serv_init(":") < 0) { /* use default */
+      /* fatal */
+      msg_out(crit, "cannot open server socket\n");
+      exit(1);
+    }
+  }
+
+#ifdef USE_THREAD
+  if ( ! threading ) {
+#endif
+    if (queue_init() != 0) {
+      msg_out(crit, "cannot init signal queue\n");
+      exit(1);
+    }
+#ifdef USE_THREAD
+  }
+#endif
+
   if (!fg) {
     /* force stdin/out/err allocate to /dev/null */
     fclose(stdin);
@@ -270,33 +291,6 @@ int main(int ac, char **av)
     default:
       /* parent */
       exit(0);
-    }
-  }
-
-#ifdef USE_THREAD
-  if ( ! threading ) {
-#endif
-    if (queue_init() != 0) {
-      msg_out(crit, "cannot init signal queue\n");
-      exit(1);
-    }
-#ifdef USE_THREAD
-  }
-#endif
-
-  if (opt_i != NULL) {
-    if (serv_init(opt_i) < 0) {
-      msg_out(crit, "cannot init server socket(-i)\n");
-      exit(1);
-    }
-    free(opt_i);
-  }
-
-  if (serv_sock_ind == 0) {   /* no valid ifs yet */
-    if (serv_init("/") < 0) { /* use default */
-      /* fatal */
-      msg_out(crit, "cannot open server socket\n");
-      exit(1);
     }
   }
 
@@ -353,11 +347,11 @@ int main(int ac, char **av)
       if (setrlimit(RLIMIT_NOFILE, &rl) != 0)
         msg_out(warn, "cannot set rlimit(max_fd)");
 
-    setegid(PROCGID);
-    seteuid(PROCUID);
+    setregid(0, PROCGID);
+    setreuid(0, PROCUID);
 
     pthread_mutex_init(&mutex_select, NULL);
-    pthread_mutex_init(&mutex_gh0, NULL);
+    /*    pthread_mutex_init(&mutex_gh0, NULL); */
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
@@ -374,8 +368,8 @@ int main(int ac, char **av)
   } else {
 #endif
     setsignal(SIGCHLD, reapchild);
-    setegid(PROCGID);
-    seteuid(PROCUID);
+    setregid(0, PROCGID);
+    setreuid(0, PROCUID);
     msg_out(norm, "Starting: MAX_CH(%d)", max_child);
     serv_loop();
 #ifdef USE_THREAD

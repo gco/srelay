@@ -3108,6 +3108,57 @@ fi
 
 
    if test "$tcpdh" != "no"; then
+      if test "$OS" = "LINUX"; then
+          echo "$as_me:$LINENO: checking for hosts_ctl in -lwrap" >&5
+echo $ECHO_N "checking for hosts_ctl in -lwrap... $ECHO_C" >&6
+          saveLIBS="$LIBS"
+	  LIBS="-lwrap -lnsl $LIBS"
+	  cat >conftest.$ac_ext <<_ACEOF
+#line $LINENO "configure"
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+
+int allow_severity;
+int deny_severity;
+int
+main ()
+{
+hosts_ctl();
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext
+if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
+  (eval $ac_compile) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+         { ac_try='test -s conftest.$ac_objext'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  cat >>confdefs.h <<\_ACEOF
+#define HAVE_LIBWRAP 1
+_ACEOF
+
+	echo "$as_me:$LINENO: result: yes" >&5
+echo "${ECHO_T}yes" >&6
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+LIBS="$saveLIBS"
+	echo "$as_me:$LINENO: result: no" >&5
+echo "${ECHO_T}no" >&6
+fi
+rm -f conftest.$ac_objext conftest.$ac_ext
+      else
 
 echo "$as_me:$LINENO: checking for hosts_ctl in -lwrap" >&5
 echo $ECHO_N "checking for hosts_ctl in -lwrap... $ECHO_C" >&6
@@ -3172,6 +3223,7 @@ _ACEOF
 
 fi
 
+      fi
    fi
 fi
 
@@ -4232,13 +4284,13 @@ _ACEOF
 
 
 
-
-for ac_func in select\
+for ac_func in \
+		select\
 		socket\
-		inet_addr\
-		inet_pton\
-		inet_ntop\
-		gethostbyname_r
+		getaddrinfo\
+		getnameinfo\
+		freeaddrinfo\
+
 do
 as_ac_var=`echo "ac_cv_func_$ac_func" | $as_tr_sh`
 echo "$as_me:$LINENO: checking for $ac_func" >&5

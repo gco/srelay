@@ -34,10 +34,15 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "srelay.h"
 
-#if HAVE_LIBWRAP
+#ifdef HAVE_LIBWRAP
 # include <tcpd.h>
+# ifdef LINUX
+#  include <syslog.h>
+int    allow_severity = LOG_AUTH|LOG_INFO;
+int    deny_severity  = LOG_AUTH|LOG_NOTICE;
+# endif /* LINUX */
 extern int hosts_ctl __P((char *, char *, char *, char *));
-#endif
+#endif /* HAVE_LIBWRAP */
 
 #define TIMEOUTSEC   30
 
@@ -50,14 +55,18 @@ typedef struct {
 } rlyinfo;
 
 typedef struct {
-  struct sockaddr_in *sa;
-  struct sockaddr_in *ca;
-  struct sockaddr_in *saa;
-  struct sockaddr_in *caa;
+  struct sockaddr_storage mys;
+  socklen_t  mys_len;
+  struct sockaddr_storage myc;
+  socklen_t  myc_len;
+  struct sockaddr_storage prs;
+  socklen_t  prs_len;
+  struct sockaddr_storage prc;
+  socklen_t  prc_len;
   u_long upl;
   u_long dnl;
   u_long bc;
-  struct timeval *elp;
+  struct timeval elp;
 } loginfo;
   
 int resolv_client;
@@ -67,6 +76,7 @@ void readn __P((rlyinfo *));
 void writen __P((rlyinfo *));
 ssize_t forward __P((rlyinfo *));
 int validate_access __P((char *, char *));
+int set_sock_info __P((loginfo *, int, int));
 void relay __P((int, int));
 int log_transfer __P((loginfo *));
 
@@ -122,7 +132,7 @@ int validate_access(char *client_addr, char *client_name)
   stat = hosts_ctl(ident, client_name, client_addr, STRING_UNKNOWN);
   /* IP.PORT pattern */
   for (i = 0; i < serv_sock_ind; i++) {
-    if (str_serv_sock[i] != NULL && str_serv_sock[i][0] != NULL) {
+    if (str_serv_sock[i] != NULL && str_serv_sock[i][0] != 0) {
       stat |= hosts_ctl(str_serv_sock[i],
 			client_name, client_addr, STRING_UNKNOWN);
     }
@@ -138,40 +148,54 @@ int validate_access(char *client_addr, char *client_name)
   return stat;
 }
 
+int set_sock_info(loginfo *li, int cs, int ss)
+{
+  /* prepare sockaddr info for logging */
+  int len;
+
+  len = sizeof(struct sockaddr_storage);
+  /* get socket name of upstream side */
+  getsockname(ss, (struct sockaddr *)&li->mys, &len);
+  li->mys_len = len;
+
+  len = sizeof(struct sockaddr_storage);
+  /* get socket name of downstream side */
+  getsockname(cs, (struct sockaddr *)&li->myc, &len);
+  li->myc_len = len;
+
+  len = sizeof(struct sockaddr_storage);
+  /* get socket ss peer name */
+  getpeername(ss, (struct sockaddr *)&li->prs, &len);
+  li->prs_len = len;
+
+  len = sizeof(struct sockaddr_storage);
+  /* get socket cs peer name */
+  getpeername(cs, (struct sockaddr *)&li->prc, &len);
+  li->prc_len = len;
+  return 0;
+}
+
+
 u_long idle_timeout = IDLE_TIMEOUT;
 
 void relay(int cs, int ss)
 {
-  fd_set rfds, xfds;
-  int    nfds, sfd;
-  struct timeval tv, ts, ots, elp;
-  struct timezone tz;
-  ssize_t wc;
-  rlyinfo ri;
-  int done;
-  u_long max_count = idle_timeout;
-  u_long timeout_count;
-  loginfo li;
-  struct sockaddr_in sa, ca, saa, caa;   /* using for logging */
-  int len;
+  fd_set   rfds, xfds;
+  int      nfds, sfd;
+  struct   timeval tv, ts, ots, elp;
+  struct   timezone tz;
+  ssize_t  wc;
+  rlyinfo  ri;
+  int      done;
+  u_long   max_count = idle_timeout;
+  u_long   timeout_count;
+  loginfo  li;
 
+  memset(&ri, 0, sizeof(ri));
   ri.nr = BUFSIZE;
 
-  /* prepare sockaddr info for logging */
-  /* get socket ss peer name */
-  len = sizeof(struct sockaddr_in);
-  getpeername(ss, (struct sockaddr *)&sa, &len);
-  /* get socket cs peer name */
-  len = sizeof(struct sockaddr_in);
-  getpeername(cs, (struct sockaddr *)&ca, &len);
-  /* get socket name of upstream side */
-  len = sizeof(struct sockaddr_in);
-  getsockname(ss, (struct sockaddr *)&saa, &len);
-  /* get socket name of downtream side */
-  len = sizeof(struct sockaddr_in);
-  getsockname(cs, (struct sockaddr *)&caa, &len);
-  li.sa = &sa; li.ca = &ca; li.saa = &saa, li.caa = &caa;
-  /* * */
+  memset(&li, 0, sizeof(li));
+  set_sock_info(&li, cs, ss);
 
   nfds = (ss > cs ? ss : cs);
   setsignal(SIGALRM, timeout);
@@ -242,7 +266,7 @@ void relay(int cs, int ss)
   }
   elp.tv_sec = ts.tv_sec - ots.tv_sec;
   elp.tv_usec = ts.tv_usec - ots.tv_usec;
-  li.elp = &elp;
+  li.elp = elp;
 
   log_transfer(&li);
 
@@ -257,13 +281,13 @@ pthread_mutex_t mutex_gh0;
 
 int serv_loop()
 {
-  int    cs, ss=0;
-  struct sockaddr_in client;
+  int    cs, ss = 0;
+  struct sockaddr_storage cl;
   fd_set readable;
   int    i, n, len;
-  struct hostent *h;
-  char   cl_addr[16];
-  char   cl_name[256];
+  char   cl_addr[NI_MAXHOST];
+  char   cl_name[NI_MAXHOST];
+  int    error;
   pid_t  pid;
 
 #ifdef USE_THREAD
@@ -332,8 +356,8 @@ int serv_loop()
       continue;
     }
 
-    len = sizeof(struct sockaddr_in);
-    cs = accept(serv_sock[i], (struct sockaddr *)&client, &len);
+    len = sizeof(struct sockaddr_storage);
+    cs = accept(serv_sock[i], (struct sockaddr *)&cl, &len);
     if (cs < 0) {
       if (errno == EINTR
 #ifdef SOLARIS
@@ -364,29 +388,19 @@ int serv_loop()
     }
 #endif
 
-    memset(cl_addr, 0, sizeof cl_addr);
-    memset(cl_name, 0, sizeof cl_name);
-    if(inet_ntop(AF_INET, &(client.sin_addr),
-		 cl_addr, sizeof cl_addr) == NULL) {
-      cl_addr[0] = '\0';
-    } else {
-      cl_addr[(sizeof cl_addr) - 1] = '\0';
-    }
-    MUTEX_LOCK(mutex_gh0);
+    error = getnameinfo((struct sockaddr *)&cl, len,
+			cl_addr, sizeof(cl_addr),
+			NULL, 0,
+			NI_NUMERICHOST);
     if (resolv_client) {
-      h = gethostbyaddr((char *)&(client.sin_addr),
-			sizeof client.sin_addr, AF_INET);
-      if (h == NULL) {
-	strncpy(cl_name, cl_addr, sizeof cl_addr);
-      } else {
-	strncpy(cl_name, h->h_name, sizeof cl_name);
-      }
+      error = getnameinfo((struct sockaddr *)&cl, len,
+			  cl_name, sizeof(cl_name),
+			  NULL, 0, 0);
       msg_out(norm, "%s[%s] connected", cl_name, cl_addr);
     } else {
-      strncpy(cl_name, cl_addr, sizeof cl_addr);
       msg_out(norm, "%s connected", cl_addr);
+      strncpy(cl_name, cl_addr, sizeof(cl_name));
     }
-    MUTEX_UNLOCK(mutex_gh0);
 
     i = validate_access(cl_addr, cl_name);
     if (i < 1) {
@@ -443,28 +457,34 @@ int serv_loop()
 
 int log_transfer(loginfo *li)
 {
-  char cs_ip[16], ss_ip[16];
-  u_short cs_port, ss_port, csa_port, ssa_port;
 
-  cs_port = ss_port = csa_port = ssa_port = 0;
+  char    prc_ip[NI_MAXHOST], prs_ip[NI_MAXHOST];
+  char    myc_port[NI_MAXSERV], mys_port[NI_MAXSERV];
+  char    prc_port[NI_MAXSERV], prs_port[NI_MAXSERV];
+  int     error = 0;
 
-  if (inet_ntop(AF_INET, &(li->ca->sin_addr),
-		  cs_ip, sizeof cs_ip) == NULL) {
-    cs_ip[0] = '\0';
-  }
-  if (inet_ntop(AF_INET, &(li->sa->sin_addr),
-		  ss_ip, sizeof ss_ip) == NULL) {
-    ss_ip[0] = '\0';
-  }
-  cs_port = ntohs(li->ca->sin_port);
-  ss_port = ntohs(li->sa->sin_port);
-  csa_port = ntohs(li->caa->sin_port);
-  ssa_port = ntohs(li->saa->sin_port);
+  error = getnameinfo((struct sockaddr *)&li->myc, li->myc_len,
+		      NULL, 0,
+		      myc_port, sizeof(myc_port),
+		      NI_NUMERICHOST|NI_NUMERICSERV);
+  error = getnameinfo((struct sockaddr *)&li->mys, li->mys_len,
+		      NULL, 0,
+		      mys_port, sizeof(mys_port),
+		      NI_NUMERICHOST|NI_NUMERICSERV);
+  error = getnameinfo((struct sockaddr *)&li->prc, li->prc_len,
+		      prc_ip, sizeof(prc_ip),
+		      prc_port, sizeof(prc_port),
+		      NI_NUMERICHOST|NI_NUMERICSERV);
+  error = getnameinfo((struct sockaddr *)&li->prs, li->prs_len,
+		      prs_ip, sizeof(prs_ip),
+		      prs_port, sizeof(prs_port),
+		      NI_NUMERICHOST|NI_NUMERICSERV);
 
-  msg_out(norm, "%s:%u:%u %s:%u:%u %u(%u/%u) %u.%06u",
-	  cs_ip, cs_port, csa_port,
-	  ss_ip, ss_port, ssa_port,
+  msg_out(norm, "%s:%s-%s/%s-%s:%s %u(%u/%u) %u.%06u",
+	  prc_ip, prc_port, myc_port,
+	  mys_port, prs_ip, prs_port,
 	  li->bc, li->upl, li->dnl,
-	  li->elp->tv_sec, li->elp->tv_usec);
+	  li->elp.tv_sec, li->elp.tv_usec);
+
   return(0);
 }

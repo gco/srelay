@@ -80,7 +80,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <unistd.h>
 
-#define version  "srelay 0.4.0 2003/01/06 (Tomo.M)"
+#define version  "srelay 0.4.5 2003/03/27 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"
@@ -180,35 +180,39 @@ enum { norm=0, warn, crit };
 #define S5ACHAP       3
 #define S5ANOTACC     0xff
 
-/*
-  struct rtbl:
-        atype:  address type
-        dest:   destination host or network.
-	mask:   destination address mask;
-	        dest.s_addr = 0 means 'any' IP address. so that
-	        mask is ignored (zeroed forcibly).
-	len:    domain name string length (atype = S5ATFQDN);
-	domain: destination by domainname (atype = S5ATFQDN)
-	port_l: lower port of destination port range.
-	port_h: higher port of destination port range.
-	proxy:  next hop proxy server.
-	port:   next hop proxy server port.
-	        proxy.s_addr = 0 means direct connect.
-	        if no 'proxy' specified, try direct connect to dest.
-
-        note -  port numbers are stored in 'host-byte-order'.
-*/
+struct bin_addr {            /* binary format of SOCKS address */
+  unsigned char  atype;
+  union {
+    unsigned char  ip4[4];   /* NBO */
+    unsigned char  ip6[16];  /* NBO */
+    struct {
+      unsigned char  _nlen;
+      unsigned char  _name[255];
+    } _fqdn;
+  } addr;
+#define v4_addr   addr.ip4
+#define v6_addr   addr.ip6
+#define len_fqdn  addr._fqdn._nlen
+#define fqdn      addr._fqdn._name
+};
 
 struct rtbl {
-  int    atype;
-  struct in_addr dest;
-  struct in_addr mask;
-  int    len;
-  char   *domain;
-  u_short port_l;
-  u_short port_h;
-  struct in_addr proxy;
-  u_short port;
+  struct bin_addr dest;       /* destination address */
+  int             mask;       /* destination address mask len */
+  u_short         port_l;     /* port range low  (HBO) */
+  u_short         port_h;     /* port range high (HBO)*/
+  struct bin_addr proxy;      /* proxy socks address */
+  u_short         port;       /* proxy socks port (HBO) */
+};
+
+struct socks_req {
+  int      s;                 /* client socket */
+  int      req;               /* request CONN/BIND */
+  struct bin_addr dest;       /* destination address */
+  u_short  port;              /* destination port (host byte order) */
+  unsigned char u_len;        /* user name length (socks v4) */
+  char     user[255];         /* user name (socks v4) */ 
+  int      tbl_ind;           /* proxy table indicator */
 };
 
 #ifndef SIGFUNC_DEFINED
@@ -290,7 +294,7 @@ ssize_t timerd_write __P((int, char *, size_t, int));
 extern int proto_socks __P((int));
 
 /* get-bind.c */
-int get_bind_addr __P((struct in_addr *, struct in_addr * ));
+int get_bind_addr __P((struct socks_req *, struct addrinfo *));
 
 /* util.c */
 extern void msg_out __P((int, const char *, ...));
@@ -306,9 +310,6 @@ extern void reload __P((void));
 extern sigfunc_t setsignal __P((int, sigfunc_t));
 extern int blocksignal __P((int));
 extern int releasesignal __P((int));
-#ifndef HAVE_INET_PTON
-extern int inet_pton __P((int, char *, void *));
-#endif
 extern void proclist_add __P((pid_t));
 extern void proclist_drop __P((pid_t));
 

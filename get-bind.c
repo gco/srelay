@@ -51,7 +51,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 
-static int get_ifconf(int, struct in_addr *);
+static int get_ifconf(int, struct addrinfo *);
 #endif /* defined(LINUX) */
 
 #if defined(FREEBSD) || defined(SOLARIS) 
@@ -128,7 +128,7 @@ get_rtaddrs(int addrs, struct sockaddr *sa, struct sockaddr **rti_info)
 #define	SEQ		9999	/* packet sequence dummy */
 #define MAXNUM_IF	256	/* max number of interfaces */
 
-int get_bind_addr(struct in_addr *dest, struct in_addr *binda)
+int get_bind_addr(struct socks_req *req, struct addrinfo *ba)
 {
 
   /* list interface name/address
@@ -148,7 +148,45 @@ int get_bind_addr(struct in_addr *dest, struct in_addr *binda)
   struct sockaddr	*sa, *rti_info[RTAX_MAX];
   struct sockaddr_in	*sin;
   struct sockaddr_dl    *sdl;
+  struct in_addr        ia;
 
+  struct addrinfo hints, *res, *res0;
+  int    error;
+  char   host[256];
+  int found = 0;
+
+
+  /* IPv6 routing is not implemented yet */
+  switch (req->dest.atype) {
+  case S5ATIPV4:
+    memcpy(&ia, &(req->dest.v4_addr), 4);
+    break;
+  case S5ATIPV6:
+    return -1;
+  case S5ATFQDN:
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family = AF_INET;
+    memcpy(host, &req->dest.fqdn, req->dest.len_fqdn);
+    host[req->dest.len_fqdn] = '\0';
+    error = getaddrinfo(host, NULL, &hints, &res0);
+    if (error) {
+      return -1;
+    }
+    for (res = res0; res; res = res->ai_next) {
+      if (res->ai_family != AF_INET)
+	continue;
+      sin = (struct sockaddr_in *)res->ai_addr;
+      memcpy(&ia, &(sin->sin_addr), sizeof(ia));
+      found++; break;
+    }
+    freeaddrinfo(res0);
+    if (!found)
+      return -1;
+    break;
+  default:
+    return -1;
+  }
 
   sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 
@@ -183,9 +221,9 @@ int get_bind_addr(struct in_addr *dest, struct in_addr *binda)
   ent = i; /* number of interfaces */
 
   /* get routing */
-  seteuid(0);
+  setreuid(PROCUID, 0);
   sockfd = socket(AF_ROUTE, SOCK_RAW, 0);	/* need superuser privileges */
-  seteuid(PROCUID);
+  setreuid(0, PROCUID);
   if (sockfd < 0) {
     /* socket error */
     return(-1);
@@ -209,7 +247,7 @@ int get_bind_addr(struct in_addr *dest, struct in_addr *binda)
   sin->sin_len = sizeof(struct sockaddr_in);
 #endif
 
-  sin->sin_addr.s_addr = dest->s_addr;
+  memcpy(&(sin->sin_addr), &ia, sizeof(struct in_addr));
 
 #ifdef HAVE_SOCKADDR_SA_LEN
   sa = (struct sockaddr *)sin;
@@ -236,12 +274,22 @@ int get_bind_addr(struct in_addr *dest, struct in_addr *binda)
   sa = (struct sockaddr *) (rtm + 1);
   get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
 
+  ba->ai_family = AF_INET;          /* IPv4 */
+  ba->ai_socktype = SOCK_STREAM;
+  ba->ai_protocol = IPPROTO_TCP;
+  sin = (struct sockaddr_in *)ba->ai_addr;
+  sin->sin_family = AF_INET;
+#ifdef HAVE_SOCKADDR_SA_LEN
+  sin->sin_len = sizeof(struct sockaddr_in);
+#endif
+  ba->ai_addrlen = sizeof(struct sockaddr_in);
+
   if ( (sa = rti_info[RTAX_IFP]) != NULL) {
     sdl = (struct sockaddr_dl *)sa;
     if (sdl->sdl_nlen > 0) {
       for (i=0; i<ent; i++) {
 	if (memcmp(ifl[i].if_name, sdl->sdl_data, sdl->sdl_nlen) == 0) {
-	  binda->s_addr = ifl[i].if_addr.s_addr;
+	  memcpy(&sin->sin_addr, &ifl[i].if_addr, sizeof(struct in_addr));
 	  return(0);
 	}
       }
@@ -254,7 +302,7 @@ int get_bind_addr(struct in_addr *dest, struct in_addr *binda)
 
 #if defined(LINUX)
 
-int get_bind_addr(struct in_addr *dest, struct in_addr *binda)
+int get_bind_addr(struct socks_req *req, struct addrinfo *ba)
 {
   int s;
   int len;
@@ -263,7 +311,7 @@ int get_bind_addr(struct in_addr *dest, struct in_addr *binda)
     struct nlmsghdr         n;
     struct rtmsg            r;
     char                    buf[1024];
-  } req;
+  } rreq;
 
   int status;
   unsigned seq;
@@ -280,23 +328,64 @@ int get_bind_addr(struct in_addr *dest, struct in_addr *binda)
   pid_t pid;
   struct rtattr * tb[RTA_MAX+1];
   struct rtmsg *r;
+  struct sockaddr_in *sin;
+  struct in_addr      ia;
 
-  memset(&req, 0, sizeof(req));
+  /* IPv6 routing is not implemented yet */
+  switch (req->dest.atype) {
+  case S5ATIPV4:
+    memcpy(&ia, &(req->dest.v4_addr), 4);
+    break;
+  case S5ATIPV6:
+    return -1;
+  case S5ATFQDN:
+    {
+      struct addrinfo hints, *res, *res0;
+      int    error;
+      char   host[256];
 
-  req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
-  req.n.nlmsg_flags = NLM_F_REQUEST;
-  req.n.nlmsg_type = RTM_GETROUTE;
-  req.r.rtm_family = AF_INET;
+      memset(&hints, 0, sizeof(hints));
+      hints.ai_socktype = SOCK_STREAM;
+      hints.ai_family = AF_INET;
+      memcpy(host, &req->dest.fqdn, req->dest.len_fqdn);
+      host[req->dest.len_fqdn] = '\0';
+      error = getaddrinfo(host, NULL, &hints, &res0);
+      if (error) {
+	return -1;
+      }
+      int found = 0;
+      for (res = res0; res; res = res->ai_next) {
+	if (res->ai_family != AF_INET)
+	  continue;
+	sin = (struct sockaddr_in *)res->ai_addr;
+	memcpy(&ia, &(sin->sin_addr), sizeof(ia));
+	found++; break;
+      }
+      freeaddrinfo(res0);
+      if (!found)
+	return -1;
+    }
+    break;
+  default:
+    return -1;
+  }
+
+  memset(&rreq, 0, sizeof(rreq));
+
+  rreq.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
+  rreq.n.nlmsg_flags = NLM_F_REQUEST;
+  rreq.n.nlmsg_type = RTM_GETROUTE;
+  rreq.r.rtm_family = AF_INET;
 
   len = RTA_LENGTH(4);
-  if (NLMSG_ALIGN(req.n.nlmsg_len) + len > sizeof(req))
+  if (NLMSG_ALIGN(rreq.n.nlmsg_len) + len > sizeof(rreq))
     return(-1);
-  rta = (struct rtattr*)((char *)&req.n + NLMSG_ALIGN(req.n.nlmsg_len));
+  rta = (struct rtattr*)((char *)&rreq.n + NLMSG_ALIGN(rreq.n.nlmsg_len));
   rta->rta_type = RTA_DST;
   rta->rta_len = len;
-  memcpy(RTA_DATA(rta), dest, 4);
-  req.n.nlmsg_len = NLMSG_ALIGN(req.n.nlmsg_len) + len;
-  req.r.rtm_dst_len = 32;  /* 32 bit */
+  memcpy(RTA_DATA(rta), &ia, 4);
+  rreq.n.nlmsg_len = NLMSG_ALIGN(rreq.n.nlmsg_len) + len;
+  rreq.r.rtm_dst_len = 32;  /* 32 bit */
 
   s = socket(PF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE);
 
@@ -305,15 +394,15 @@ int get_bind_addr(struct in_addr *dest, struct in_addr *binda)
   nladdr.nl_pid = 0;
   nladdr.nl_groups = 0;
 
-  req.n.nlmsg_seq = seq = 9999;
+  rreq.n.nlmsg_seq = seq = 9999;
 
-  iov.iov_base = (void*)&req.n;
-  iov.iov_len  = req.n.nlmsg_len;
+  iov.iov_base = (void*)&rreq.n;
+  iov.iov_len  = rreq.n.nlmsg_len;
 
   status = sendmsg(s, &msg, 0);
 
   if (status < 0) {
-    perror("Cannot talk to rtnetlink");
+    /* perror("Cannot talk to rtnetlink"); */
     return -1;
   }
 
@@ -350,19 +439,18 @@ int get_bind_addr(struct in_addr *dest, struct in_addr *binda)
   */
   if (tb[RTA_OIF]) {
     unsigned *d = RTA_DATA(tb[RTA_OIF]);
-    return(get_ifconf(*d, binda));
+    return(get_ifconf(*d, ba));
   }
   return(-1);
 }
 
-
-int get_ifconf(int index, struct in_addr *binda)
+int get_ifconf(int index, struct addrinfo *ba)
 {
   int s;
   struct {
     struct nlmsghdr n;
     struct rtgenmsg g;
-  } req;
+  } rreq;
   struct sockaddr_nl nladdr;
   char   buf[8192];
   struct iovec iov;
@@ -384,15 +472,15 @@ int get_ifconf(int index, struct in_addr *binda)
   memset(&nladdr, 0, sizeof(nladdr));
   nladdr.nl_family = AF_NETLINK;
 
-  req.n.nlmsg_len = sizeof(req);
-  req.n.nlmsg_type = RTM_GETADDR;
-  req.n.nlmsg_flags = NLM_F_ROOT|NLM_F_MATCH|NLM_F_REQUEST;
-  req.n.nlmsg_pid = 0;
-  req.n.nlmsg_seq = seq = 9998;
-  req.g.rtgen_family = AF_INET;
+  rreq.n.nlmsg_len = sizeof(rreq);
+  rreq.n.nlmsg_type = RTM_GETADDR;
+  rreq.n.nlmsg_flags = NLM_F_ROOT|NLM_F_MATCH|NLM_F_REQUEST;
+  rreq.n.nlmsg_pid = 0;
+  rreq.n.nlmsg_seq = seq = 9998;
+  rreq.g.rtgen_family = AF_INET;
 
   s = socket(PF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE);
-  sendto(s, (void*)&req, sizeof(req), 0,
+  sendto(s, (void*)&rreq, sizeof(rreq), 0,
 	 (struct sockaddr*)&nladdr, sizeof(nladdr));
 
   pid = getpid();
@@ -425,7 +513,14 @@ int get_ifconf(int index, struct in_addr *binda)
 	  inet_ntop(AF_INET, RTA_DATA(tb[IFA_ADDRESS]), str, sizeof(str));
 	  msg_out(norm, "ADDRESS %s\n", str);
 	*/
-	memcpy(binda, RTA_DATA(tb[IFA_ADDRESS]), 4);
+	struct sockaddr_in *sin;
+	ba->ai_family = AF_INET;         /* IPv4 */
+	ba->ai_socktype = SOCK_STREAM;
+	ba->ai_protocol = IPPROTO_IP;
+	ba->ai_addrlen = sizeof(struct sockaddr_in);
+	sin = (struct sockaddr_in *)ba->ai_addr;
+	sin->sin_family = AF_INET;
+	memcpy(&(sin->sin_addr), RTA_DATA(tb[IFA_ADDRESS]), 4);
 	return(0);
       }
       /*

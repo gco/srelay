@@ -38,6 +38,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define S5REQ_BIND    2
 #define S5REQ_UDPA    3
 
+#define S5AGRANTED    0
 #define S5EGENERAL    1
 #define S5ENOTALOW    2
 #define S5ENETURCH    3 
@@ -56,30 +57,57 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define S4ECNIDENT    92
 #define S4EIVUSRID    93
 
-#define TIMEOUTSEC   30
+#define TIMEOUTSEC    30
 
-struct socks_req {
-  int    s;                 /* client socket */
-  int    atype;             /* address type */
-  struct sockaddr_in *dest; /* destination sockaddr */
-  char   *hostname;         /* destination hostname */
-  char   *username;         /* user name used for socks v4 */ 
-  int    req;               /* request CONN/BIND */
-  int    tbl_ind;           /* proxy table indicator */
+#define GEN_ERR_REP(s, v) \
+    switch ((v)) { \
+    case 0x04:\
+      socks_rep((s), (v), S4EGENERAL, 0);\
+      break;\
+    case 0x05:\
+      socks_rep((s), (v), S5EGENERAL, 0);\
+      break;\
+    default:\
+      break;\
+    }\
+    close((s));
+
+#define POSITIVE_REP(s, v, a) \
+    switch ((v)) { \
+    case 0x04:\
+      error = socks_rep((s), (v), S4AGRANTED, (a));\
+      break;\
+    case 0x05:\
+      error = socks_rep((s), (v), S5AGRANTED, (a));\
+      break;\
+    default:\
+      error = -1;\
+      break;\
+    }\
+
+
+struct host_info {
+  char    host[NI_MAXHOST];
+  char    port[NI_MAXSERV];
+};
+
+struct req_host_info {
+  struct  host_info dest;
+  struct  host_info proxy;
 };
 
 /* prototypes */
-int lookup_tbl __P((int, struct sockaddr_in *, char *));
-int log_request __P((int, struct socks_req *, int));
+int lookup_tbl __P((struct socks_req *));
+int resolv_host __P((struct bin_addr *, u_short, struct host_info *));
+int log_request __P((int, struct socks_req *, struct req_host_info *));
+int do_bind __P((int, struct addrinfo *, u_short));
+int socks_rep __P((int , int , int , struct sockaddr *));
+int socks_direct_conn __P((int, struct socks_req *));
 int proto_socks4 __P((int));
-int s4direct_conn __P((struct socks_req *));
-void s4err_rep __P((int, int));
 int proto_socks5 __P((int));
-int s5direct_conn __P((struct socks_req *));
 int s5auth_s __P((int));
 int s5auth_s_rep __P((int, int));
 int s5auth_c __P((int, int));
-void s5err_rep __P((int, int));
 int proxy_connect __P((int, struct socks_req *));
 int connect_to_socks __P((int, struct socks_req *));
 int proxy_reply __P((int, int, int, int));
@@ -132,51 +160,198 @@ ssize_t timerd_write(int s, char *buf, size_t len, int sec)
   return(r);
 }
 
-int lookup_tbl(int atype, struct sockaddr_in *sa, char *domain)
+int addr_comp(struct bin_addr *dest, int ind)
 {
-  int i, match, len;
-  struct in_addr net;
-  u_short port;
+  int    ret;
+  struct in6_addr in6addr_any = IN6ADDR_ANY_INIT;
+  struct in_addr  inaddr_any;
 
-  port = ntohs(sa->sin_port);
-  match = 0;
-  for (i=0; i < proxy_tbl_ind; i++) {
-    if ( atype != proxy_tbl[i].atype ) {
-      continue;
-    }
-    switch (atype) {
-    case S5ATFQDN:
-      len = strlen(domain);
-      if (len <= 0 || len >= 256)
-	break;
-      if ( len < proxy_tbl[i].len || *domain == '\0' ) {
-	break;
-      }
-      if (strncasecmp(proxy_tbl[i].domain,
-		      &(domain[len - proxy_tbl[i].len]),
-		      proxy_tbl[i].len) == 0) {
-	match++;
-      }
-      break;
+  inaddr_any.s_addr = INADDR_ANY;
+
+  if (dest->atype != proxy_tbl[ind].dest.atype)
+    return -1;             /* address type mismatched */
+
+  /* if dest entry is wildcard, every thing is matched */
+  switch (dest->atype) {
+  case S5ATIPV4:
+    if (memcmp(&(proxy_tbl[ind].dest.v4_addr),
+	       &inaddr_any, sizeof inaddr_any) == 0)
+      return 0;
+    break;
+  case S5ATIPV6:
+    if (memcmp(&(proxy_tbl[ind].dest.v6_addr),
+	       &in6addr_any, sizeof in6addr_any) == 0)
+      return 0;
+    break;
+  default:
+    break;
+  }
+    
+  if (proxy_tbl[ind].mask == 0) {  /* no need to process mask */
+    switch (dest->atype) {
     case S5ATIPV4:
-      memset(&net, 0, sizeof(net));
-      memcpy(&net, &(sa->sin_addr), sizeof(net));
-      net.s_addr &= proxy_tbl[i].mask.s_addr;
-      if ( memcmp(&net, &(proxy_tbl[i].dest),
-		  sizeof(struct in_addr)) == 0) {
-	match++;
-      }
+      if (memcmp(&proxy_tbl[ind].dest.v4_addr,
+		 dest->v4_addr, sizeof(dest->v4_addr)) == 0)
+	return 0;
+      break;
+    case S5ATIPV6:
+      if (memcmp(&proxy_tbl[ind].dest.v6_addr,
+		 dest->v6_addr, sizeof(dest->v6_addr)) == 0)
+	return 0;
       break;
     default:
       break;
     }
-    if (!match) {
-      continue;
-    }
-    if (port >= proxy_tbl[i].port_l && port <= proxy_tbl[i].port_h) {
+  } else {
+    /* process address mask */
+    switch (dest->atype) {
+    case S5ATIPV4:
+      /* sanity check */
+      if (proxy_tbl[ind].mask < 1 || proxy_tbl[ind].mask > 32) {
+	ret = -1;
+      } else {
+	u_short mask;
+	struct sockaddr_in *sin1, *sin2;
+	mask = ( 0xffffffff << (32-proxy_tbl[ind].mask) ) & 0xffffffff;
+	sin1 = (struct sockaddr_in *)&(dest->v4_addr);
+	sin2 = (struct sockaddr_in *)&(proxy_tbl[ind].dest.v4_addr);
+	sin1->sin_addr.s_addr &= mask;
+	sin2->sin_addr.s_addr &= mask;
+	ret = memcmp(&sin1->sin_addr,
+		     &sin2->sin_addr, sizeof(struct in_addr));
+      }
       break;
-    } else {
-      match = 0;
+      
+    case S5ATIPV6:
+      if (proxy_tbl[ind].mask < 1 || proxy_tbl[ind].mask > 128) {
+	ret = -1;
+      } else {
+	u_short  f, r, smask;
+	int      i;
+	struct sockaddr_in6 *sin1, *sin2;
+	
+	f = proxy_tbl[ind].mask / 8;
+	r = proxy_tbl[ind].mask % 8;
+	if ( f > 16 ) { /* ??? why ??? */
+	  f = 16; r = 0;
+	}
+	sin1 = (struct sockaddr_in6 *)&(dest->v6_addr);
+	sin2 = (struct sockaddr_in6 *)&(proxy_tbl[ind].dest.v6_addr);
+	ret = 0;
+	for (i=0; i<f; i++) {
+	  if (sin1->sin6_addr.s6_addr[i] != sin2->sin6_addr.s6_addr[i]) {
+	    ret = -1;
+	    break;
+	  }
+	}
+	if (ret == 0) {
+	  if (f < 16 && r > 0) {
+	    smask = (0xff << (8-r)) & 0xff;
+	    sin1->sin6_addr.s6_addr[f] &= smask;
+	    sin2->sin6_addr.s6_addr[f] &= smask;
+	    ret = memcmp(&(sin1->sin6_addr),
+			 &(sin2->sin6_addr), sizeof(struct in6_addr));
+	  }
+	}
+      }
+      break;
+
+    default:
+      ret = -1;
+    }
+    if (ret == 0)
+      return 0;
+  }
+  return -1;
+}
+
+int lookup_tbl(struct socks_req *req)
+{
+  int    i, match, error;
+  int    len, slen;
+  struct addrinfo hints, *res, *res0;
+  char   name[NI_MAXHOST];
+  struct bin_addr addr;
+  struct sockaddr_in  *sa;
+  struct sockaddr_in6 *sa6;
+
+  match = 0;
+  for (i=0; i < proxy_tbl_ind; i++) {
+    /* check atype */
+    if ( req->dest.atype != proxy_tbl[i].dest.atype )
+      continue;
+    /* check destination port */
+    if ( req->port < proxy_tbl[i].port_l
+	 || req->port > proxy_tbl[i].port_h)
+      continue;
+
+    switch (req->dest.atype) {
+    case S5ATIPV4:
+    case S5ATIPV6:
+      if (addr_comp(&(req->dest), i) == 0)
+	match++;
+      break;
+
+    case S5ATFQDN:
+      /* at first, try fqdn AS-IS */
+      len = req->dest.len_fqdn;
+      slen = proxy_tbl[i].dest.len_fqdn;
+      if ( len < slen )
+	break;
+      if (strncasecmp(proxy_tbl[i].dest.fqdn,
+		      &(req->dest.fqdn[len - slen]), slen) == 0)
+	match++;
+      break;
+    }
+    if ( match )
+      break;
+  }
+
+  if ( !match && req->dest.atype == S5ATFQDN ) {
+    /* fqdn 2nd stage: try resolve and lookup */
+
+    strncpy(name, req->dest.fqdn, req->dest.len_fqdn);
+    name[req->dest.len_fqdn] = '\0';
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_socktype = SOCK_STREAM;
+    error = getaddrinfo(name, NULL, &hints, &res0);
+
+    if ( !error ) {
+      for (res = res0; res; res = res->ai_next) {
+	for (i = 0; i < proxy_tbl_ind; i++) {
+	  /* check destination port */
+	  if ( req->port < proxy_tbl[i].port_l
+	       || req->port > proxy_tbl[i].port_h)
+	    continue;
+
+	  memset(&addr, 0, sizeof(addr));
+	  switch (res->ai_family) {
+	  case AF_INET:
+	    addr.atype = S5ATIPV4;
+	    sa = (struct sockaddr_in *)res->ai_addr;
+	    memcpy(&addr.v4_addr,
+		   &sa->sin_addr, sizeof(struct in_addr));
+	    break;
+	  case AF_INET6:
+	    addr.atype = S5ATIPV6;
+	    sa6 = (struct sockaddr_in6 *)res->ai_addr;
+	    memcpy(&addr.v6_addr,
+		   &sa6->sin6_addr, sizeof(struct in6_addr));
+	    break;
+	  default:
+	    addr.atype = -1;
+	    break;
+	  }
+	  if ( addr.atype != proxy_tbl[i].dest.atype )
+	    continue;
+	  if (addr_comp(&addr, i) == 0)
+	    match++;
+	  break;
+	}
+	if ( !match )
+	  continue;
+      }
+      freeaddrinfo(res0);
     }
   }
   if (match)
@@ -185,80 +360,276 @@ int lookup_tbl(int atype, struct sockaddr_in *sa, char *domain)
     return(proxy_tbl_ind);
 }
 
+int resolv_host(struct bin_addr *addr, u_short port, struct host_info *info)
+{
+  struct  sockaddr_storage ss;
+  struct  sockaddr_in  *sa;
+  struct  sockaddr_in6 *sa6;
+  int     error = 0;
+  int     len;
+
+  len = sizeof(ss);
+  memset(&ss, 0, len);
+  switch (addr->atype) {
+  case S5ATIPV4:
+    len = sizeof(struct sockaddr_in);
+    sa = (struct sockaddr_in *)&ss;
+#ifdef HAVE_SOCKADDR_SA_LEN
+    sa->sin_len = len;
+#endif
+    sa->sin_family = AF_INET;
+    memcpy(&(sa->sin_addr), &(addr->v4_addr), sizeof(struct in_addr));
+    sa->sin_port = htons(port);
+    break;
+  case S5ATIPV6:
+    len = sizeof(struct sockaddr_in6);
+    sa6 = (struct sockaddr_in6 *)&ss;
+#ifdef HAVE_SOCKADDR_SA_LEN
+    sa6->sin6_len = len;
+#endif
+    sa6->sin6_family = AF_INET6;
+    memcpy(&(sa6->sin6_addr), &(addr->v6_addr), sizeof(struct in6_addr));
+    sa6->sin6_port = htons(port);
+    break;
+  case S5ATFQDN:
+    len = sizeof(struct sockaddr_in);
+    sa = (struct sockaddr_in *)&ss;
+#ifdef HAVE_SOCKADDR_SA_LEN
+    sa->sin_len = len;
+#endif
+    sa->sin_family = AF_INET;
+    sa->sin_port = htons(port);
+    break;
+  default:
+    break;
+  }
+  if (addr->atype == S5ATIPV4 || addr->atype == S5ATIPV6) {
+    error = getnameinfo((struct sockaddr *)&ss, len,
+			info->host, sizeof(info->host),
+			info->port, sizeof(info->port),
+			NI_NUMERICHOST | NI_NUMERICSERV);
+  } else if (addr->atype == S5ATFQDN) {
+    error = getnameinfo((struct sockaddr *)&ss, len,
+			NULL, 0,
+			info->port, sizeof(info->port),
+			NI_NUMERICSERV);
+    strncpy(info->host, addr->fqdn, addr->len_fqdn);
+    info->host[addr->len_fqdn] = '\0';
+  } else {
+    strcpy(info->host, "?");
+    strcpy(info->port, "?");
+    error++;
+  }
+  return(error);
+}
+
 /*
   log_request:
 */
-int log_request(int v, struct socks_req *sr, int dp)
+int log_request(int v, struct socks_req *req, struct req_host_info *info)
 {
-  struct sockaddr_in client;
-  char  client_ip[16];
-  char  dest_ip[16];
-  char  proxy_ip[16];
-  u_short client_port, dest_port;
-  char  *host = "(?)";
-  char  *user = "-";
-  char  *ats[] =  {"ipv4", "fqdn:", "ipv6", "?"};
-  char  *reqs[] = {"CON", "BND", "UDP", "?"};
-  int   atmap[] = {3, 0, 3, 1, 2};
-  int   reqmap[] = {3, 0, 1, 2};
-  int   len;
+  struct  sockaddr_storage ss;
+  struct  host_info client;
+  int     error = 0;
+  char    user[256];
+  char    *ats[] =  {"ipv4", "fqdn", "ipv6", "?"};
+  char    *reqs[] = {"CON", "BND", "UDP", "?"};
+  int     atmap[] = {3, 0, 3, 1, 2};
+  int     reqmap[] = {3, 0, 1, 2};
+  int     len;
+  int     dp = 0;
 
-  client_ip[0] = '\0'; dest_ip[0] = '\0'; proxy_ip[0] = '\0';
-
-  len = sizeof(struct sockaddr_in);
-  if (getpeername(sr->s, (struct sockaddr *)&client, &len) != 0) {
-    client_port = 0;
+  len = sizeof(ss);
+  if (getpeername(req->s, (struct sockaddr *)&ss, &len) != 0) {
+    strncpy(client.host, "?", sizeof(client.host));
+    strncpy(client.port, "?", sizeof(client.port));
   } else {
-    inet_ntop(AF_INET, &(client.sin_addr), client_ip, sizeof client_ip);
-    client_port = ntohs(client.sin_port);
+    error += getnameinfo((struct sockaddr *)&ss, len,
+			client.host, sizeof(client.host),
+			client.port, sizeof(client.port),
+			NI_NUMERICHOST | NI_NUMERICSERV);
   }
 
-  inet_ntop(AF_INET, &(sr->dest->sin_addr), dest_ip, sizeof dest_ip);
-  dest_port = ntohs(sr->dest->sin_port);
+  strncpy(user, req->user, req->u_len);
+  user[req->u_len] = '\0';
 
-  if (sr->hostname != 0)
-    host = sr->hostname;
-  if (sr->username != 0)
-    user = sr->username;
-
-  if ( dp != 0 ) {    /* if not direct, i.e. proxy */
-    if (sr->tbl_ind >= 0 && sr->tbl_ind <= proxy_tbl_ind) {
-      if (proxy_tbl[sr->tbl_ind].proxy.s_addr != 0) {
-	inet_ntop(AF_INET, &(proxy_tbl[sr->tbl_ind].proxy),
-		  proxy_ip, sizeof proxy_ip);
-      }
-    }
+  if (proxy_tbl[req->tbl_ind].port != 0) {
+    dp = 1;
   }
 
-  msg_out(norm, "%s:%d %d-%s %s:%d(%s%s) %s %s%s.",
-		client_ip, client_port,
-		v, reqs[reqmap[sr->req]],
-	         dest_ip, dest_port,
-		ats[atmap[sr->atype]],
-	        sr->atype == 3 ? host : "",
+  msg_out(norm, "%s:%s %d-%s %s:%s(%s) %s %s%s:%s.",
+		client.host, client.port,
+		v, reqs[reqmap[req->req]],
+	        info->dest.host, info->dest.port,
+		ats[atmap[req->dest.atype]],
 	        user,
 		dp == 0 ? "direct" : "relay=",
-	        proxy_ip );
-  return(0);
+	        info->proxy.host, info->proxy.port );
+  return(error);
 }
 
-int bind_sock(int s, struct sockaddr_in *sa)
+int bind_sock(int s, struct socks_req *req, struct addrinfo *ai)
 {
-  int len = sizeof(struct sockaddr_in);
-  u_short port;
-  int r;
+  /*
+    BIND port selection priority.
+    1. requested port. (assuming dest->sin_port as requested port)
+    2. clients src port.
+    3. free port.
+  */
+  struct sockaddr_storage ss;
+  struct sockaddr_in  *sa;
+  struct sockaddr_in6 *sa6;
+  u_short    port;
+  size_t     len;
 
-  port = ntohs(sa->sin_port);
-  if ( bind_restrict ) {
-    if (port < IPPORT_RESERVEDSTART) {
-      sa->sin_port = 0;
+  /* try requested port */
+  if (do_bind(s, ai, req->port) == 0)
+    return 0;
+
+  /* try same port as client's */
+  len = sizeof(ss);
+  memset(&ss, 0, len);
+  if (getpeername(req->s, (struct sockaddr *)&ss, &len) != 0)
+    port = 0;
+  else {
+    switch (ss.ss_family) {
+    case AF_INET:
+      sa = (struct sockaddr_in *)&ss;
+      port = ntohs(sa->sin_port);
+      break;
+    case AF_INET6:
+      sa6 = (struct sockaddr_in6 *)&ss;
+      port = ntohs(sa6->sin6_port);
+      break;
+    default:
+      port = 0;
     }
   }
+  if (do_bind(s, ai, port) == 0)
+    return 0;
+
+  /*  bind free port */
+  return(do_bind(s, ai, 0));
+}
+
+int do_bind(int s, struct addrinfo *ai, u_short p)
+{
+  u_short   port = p;  /* Host Byte Order */
+  int       r;
+  struct sockaddr_in  *sa;
+  struct sockaddr_in6 *sa6;
+
+  if ( bind_restrict && port < IPPORT_RESERVEDSTART)
+    port = 0;
+
+  switch (ai->ai_family) {
+  case AF_INET:
+    sa = (struct sockaddr_in *)ai->ai_addr;
+    sa->sin_port = htons(port);
+    break;
+  case AF_INET6:
+    sa6 = (struct sockaddr_in6 *)ai->ai_addr;
+    sa6->sin6_port = htons(port);
+    break;
+  default:
+    /* unsupported */
+    return(-1);
+  }
+
+#ifdef IPV6_V6ONLY
+  int    on = 1;
+  if (ai->ai_family == AF_INET6 &&
+      setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY,
+                     &on, sizeof(on)) < 0)
+    return -1;
+#endif
+
   if (port > 0 && port < IPPORT_RESERVED)
-    seteuid(0);
-  r = bind(s, (struct sockaddr *)sa, len);
-  seteuid(PROCUID);
+    setreuid(PROCUID, 0);
+  r = bind(s, ai->ai_addr, ai->ai_addrlen);
+  setreuid(0, PROCUID);
   return(r);
+}
+
+int socks_rep(int s, int ver, int code, struct sockaddr *addr)
+{
+  struct sockaddr_in  *sa;
+  struct sockaddr_in6 *sa6;
+  u_char     buf[512];
+  int        len, r, rcode = 0;
+
+  switch (ver) {
+  case 0x04:
+    switch (code) {
+    case S4AGRANTED:
+      buf[0] = 0;
+      buf[1] = code;   /* succeeded */
+      sa = (struct sockaddr_in *)addr;
+      memcpy(&buf[2], &(sa->sin_port), 2);
+      memcpy(&buf[4], &(sa->sin_addr), 4);
+      len = 8;
+      break;
+
+    default:  /* error cases */
+      memset(buf, 0, sizeof(buf));
+      buf[0] = ver;
+      buf[1] = code;   /* error code */
+      len = 8;
+      break;
+    }
+    break;
+
+  case 0x05:
+    switch (code) {
+    case S5AGRANTED:
+      buf[0] = ver;
+      buf[1] = code;   /* succeeded */
+      buf[2] = 0;
+      switch (addr->sa_family) {
+      case AF_INET:
+	buf[3] = S5ATIPV4;
+	sa = (struct sockaddr_in *)addr;
+	memcpy(&buf[4], &(sa->sin_addr), sizeof(struct in_addr));
+	memcpy(&buf[8], &(sa->sin_port), 2);
+	len = 4+4+2;
+	break;
+      case AF_INET6:
+	buf[3] = S5ATIPV6;
+	sa6 = (struct sockaddr_in6 *)addr;
+	memcpy(&buf[4], &(sa6->sin6_addr), sizeof(struct in6_addr));
+	memcpy(&buf[20], &(sa6->sin6_port), 2);
+	len = 4+16+2;
+	break;
+      default:
+	len = 0;
+	break;
+      }
+      break;
+
+    default:  /* error cases */
+      memset(buf, 0, sizeof(buf));
+      buf[0] = ver;
+      buf[1] = code & 0xff;   /* error code */
+      buf[2] = 0;
+      buf[3] = 0x01;  /* addr type fixed to IPv4 */
+      len = 10;
+      break;
+    }
+    break;
+
+  default:
+    /* unsupported socks version */
+    len = 0;
+    break;
+  }
+  if (len > 0)
+    r = timerd_write(s, buf, len, TIMEOUTSEC);
+  else
+    r = -1;
+  if (r < len)
+    rcode = -1;
+
+  return (rcode);
 }
 
 /*
@@ -267,7 +638,7 @@ int bind_sock(int s, struct sockaddr_in *sa)
 */
 int proto_socks(int s)
 {
-  char buf[128];
+  u_char buf[128];
   int r;
   int on = 1;
 
@@ -281,7 +652,7 @@ int proto_socks(int s)
   case 4:
     if (method_num > 0) {
       /* this implies this server is working in V5 mode */
-      s4err_rep(s, S4EGENERAL);
+      socks_rep(s, 4, S4EGENERAL, 0);
       msg_out(warn, "V4 request is not accepted.");
       r = -1;
     } else {
@@ -314,53 +685,44 @@ int proto_socks(int s)
 */
 int proto_socks4(int s)
 {
-  char buf[512];
-  char username[256], hostname[256];
-  int r, len;
-  struct hostent *h;
-#if HAVE_GETHOSTBYNAME_R
-  struct hostent he;
-  char   ghwork[1024];
-  int    gherrno;
-#endif
-  struct sockaddr_in dest;
-  struct socks_req sr;
+  u_char  buf[512];
+  int     r, len;
+  struct  socks_req req;
 
-  memset(&sr, 0, sizeof sr);
-  sr.s = s;
-  sr.dest = &dest;
-  sr.hostname = hostname;
-  sr.username = username;
+  memset(&req, 0, sizeof(req));
+  req.s = s;
 
   r = timerd_read(s, buf, 1+1+2+4, TIMEOUTSEC, 0);
-  if (r < 1+1+2+4) {    /* cannt read request */
-    s4err_rep(s, S4EGENERAL);
+  if (r < 1+1+2+4) {    /* cannot read request */
+    GEN_ERR_REP(s, 4);
     return(-1);
   }
   if ( buf[0] != 0x04 ) {
     /* wrong version request (why ?) */
-    s4err_rep(s, S4EGENERAL);
+    GEN_ERR_REP(s, 4);
     return(-1);
   }
-  sr.req = buf[1];
-  memset(&dest, 0, sizeof dest);
-  dest.sin_family = AF_INET;
-  memcpy(&(dest.sin_port), &buf[2], 2);
-  memcpy(&(dest.sin_addr), &buf[4], 4);
+  req.req = buf[1];
 
   /* check if request has socks4-a domain name format */
   if ( buf[4] == 0 && buf[5] == 0 &&
        buf[6] == 0 && buf[7] != 0 ) {
-    sr.atype = S4ATFQDN;
+    req.dest.atype = S4ATFQDN;
   } else {
-    sr.atype = S4ATIPV4;
+    req.dest.atype = S4ATIPV4;
   }
 
+  req.port = buf[2] * 0x100 + buf[3];
+
+  if (req.dest.atype == S4ATIPV4) {
+    memcpy(&(req.dest.v4_addr), &buf[4], 4);
+  }
+  
   /* read client user name in request */
   r = timerd_read(s, buf, sizeof(buf), TIMEOUTSEC, MSG_PEEK);
   if ( r < 1 ) {
     /* error or client sends EOF */
-    s4err_rep(s, S4EGENERAL);
+    GEN_ERR_REP(s, 4);
     return(-1);
   }
   /* buf could contains
@@ -371,265 +733,55 @@ int proto_socks4(int s)
   r = strlen(buf);        /* r should be 0 <= r <= 255 */
   if (r < 0 || r > 255) {
     /* invalid username length */
-    s4err_rep(s, S4EGENERAL);
+    GEN_ERR_REP(s, 4);
     return(-1);
   }
 
   r = timerd_read(s, buf, r+1, TIMEOUTSEC, 0);
   if ( r > 0 && r <= 255 ) {    /* r should be 1 <= r <= 255 */
     len = r - 1;
-    strncpy(username, buf, len);
-    username[len] = '\0';
+    req.u_len = len;
+    memcpy(&(req.user), buf, len);
+    req.user[len] = '\0';
   } else {
     /* read error or something */
-    s4err_rep(s, S4EGENERAL);
+    GEN_ERR_REP(s, 4);
     return(-1);
   }
 
-  memset(hostname, 0, sizeof hostname);
-  len = 0;
-  if ( sr.atype == S4ATFQDN ) {
+  if ( req.dest.atype == S4ATFQDN ) {
     /* request is socks4-A specific */
     r = timerd_read(s, buf, sizeof buf, TIMEOUTSEC, 0);
     if ( r > 0 && r <= 256 ) {   /* r should be 1 <= r <= 256 */
       len = r - 1;
-      strncpy(hostname, buf, len);
-      hostname[len] = '\0';
+      req.dest.len_fqdn = len;
+      memcpy(&(req.dest.fqdn), buf, len);
+      req.dest.fqdn[len] = '\0';
     } else {
       /* read error or something */
-      s4err_rep(s, S4EGENERAL);
+      GEN_ERR_REP(s, 4);
       return(-1);
     }
   }
 
-  sr.tbl_ind = lookup_tbl(sr.atype, &dest, hostname);
-  if (sr.atype == S4ATFQDN && sr.tbl_ind == proxy_tbl_ind) {
-    /* fqdn request but, not particular routing */
-#if HAVE_GETHOSTBYNAME_R
-# ifdef SOLARIS
-    h = gethostbyname_r(hostname, &he,
-			ghwork, sizeof ghwork, &gherrno);
-# elif LINUX
-    gethostbyname_r(hostname, &he,
-		ghwork, sizeof ghwork, &h, &gherrno);
-# endif
-#else
-    MUTEX_LOCK(mutex_gh0);
-    h = gethostbyname(hostname);
-#endif
-    if (h != NULL) {       /* resolvable */
-      sr.atype = S4ATIPV4; /* revert atype */
-      memcpy(&(dest.sin_addr), h->h_addr_list[0], 4);
-      /* re-search table */
-      sr.tbl_ind = lookup_tbl(sr.atype, &dest, hostname);
-    }
-#ifndef HAVE_GETHOSTBYNAME_R
-    MUTEX_UNLOCK(mutex_gh0);
-#endif
+  req.tbl_ind = lookup_tbl(&req);
+  if (req.tbl_ind == proxy_tbl_ind ||             /* do default */
+      proxy_tbl[req.tbl_ind].port == 0) {
+    return(socks_direct_conn(4, &req));
   }
-
-  if (sr.tbl_ind == proxy_tbl_ind ||             /* do default */
-      proxy_tbl[sr.tbl_ind].proxy.s_addr == 0) {
-    if ( sr.atype == S4ATFQDN ) {
-#if HAVE_GETHOSTBYNAME_R
-# ifdef SOLARIS
-      h = gethostbyname_r(hostname, &he,
-			ghwork, sizeof ghwork, &gherrno);
-# elif LINUX
-      gethostbyname_r(hostname, &he,
-		      ghwork, sizeof ghwork, &h, &gherrno);
-# endif
-#else
-      MUTEX_LOCK(mutex_gh0);
-      h = gethostbyname(hostname);
-#endif
-      if (h == NULL) {
-	/* cannot resolve ?? */
-#ifndef HAVE_GETHOSTBYNAME_R
-	MUTEX_UNLOCK(mutex_gh0);
-#endif
-	s4err_rep(s, S4EGENERAL);
-	return(-1);
-      }
-      memcpy(&(dest.sin_addr), h->h_addr_list[0], 4);
-#ifndef HAVE_GETHOSTBYNAME_R
-      MUTEX_UNLOCK(mutex_gh0);
-#endif
-    }
-    return(s4direct_conn(&sr));
-  }
-  return(proxy_connect(4, &sr));
+  return(proxy_connect(4, &req));
 }
 
-int s4direct_conn(struct socks_req *sr)
-{
-  int cs=0, acs;
-  int r, len;
-  struct sockaddr_in my, cl;
-  struct in_addr bindaddr;
-  char   buf[512];
-
-  /* log the request */
-  log_request(4, sr, 0);
-
-  /* process direct connect/bind to destination */
-
-  /* process by_command request */
-  switch (sr->req) {   /* request */
-  case S4REQ_CONN:
-    if ((cs = socket(PF_INET, SOCK_STREAM, IPPROTO_IP)) == -1) {
-      /* socket error */
-      s4err_rep(sr->s, S4EGENERAL);
-      return(-1);
-    }
-    if (connect(cs, (struct sockaddr *)(sr->dest),
-		sizeof(struct sockaddr_in)) == -1) {
-      /* connect fail */
-      s4err_rep(sr->s, S4EGENERAL);
-      close(cs);
-      return(-1);
-    }
-    len = sizeof(my);
-    getsockname(cs, (struct sockaddr *)&my, &len);
-    /* socks v4 doesn't care about my socket name,
-       so that error handling is ommited here. */
-    break;
-
-  case S4REQ_BIND:
-    if (get_bind_addr(&(sr->dest->sin_addr), &bindaddr) < 0 ||
-	bindaddr.s_addr == 0) {
-      s4err_rep(sr->s, S4EGENERAL);
-      return(-1);
-    }
-    len = sizeof(struct sockaddr_in);
-    memset(&my, 0, len);
-    my.sin_family = PF_INET;
-    my.sin_addr.s_addr = bindaddr.s_addr;
-
-    if ((acs = socket(PF_INET, SOCK_STREAM, IPPROTO_IP)) == -1) {
-      /* socket error */
-      s4err_rep(sr->s, S4EGENERAL);
-      return(-1);
-    }
-
-    /*
-      BIND port selection priority.
-      1. requested port. (assuming dest->sin_port as requested port)
-      2. clients src port.
-      3. free port.
-    */
-    my.sin_port = sr->dest->sin_port;   /* set requested bind port */
-    if (bind_sock(acs, &my) != -1)
-      goto s4bind_ok;
-
-    /* bind failed for requested port */
-    len = sizeof(cl);
-    if (getpeername(sr->s, (struct sockaddr *)&cl, &len) == 0) {
-      my.sin_port = cl.sin_port;
-      if (bind_sock(acs, &my) != -1)
-	goto s4bind_ok;
-    }
-
-    /* try bind to free-port */
-    my.sin_port = 0;
-    if (bind_sock(acs, &my) == -1) {
-      /* bind failed either */
-      s4err_rep(sr->s, S4EGENERAL);
-      close(acs);
-      return(-1);
-    }
-
-  s4bind_ok:
-    listen(acs, 64);
-    /* get my socket name again to acquire an
-       actual listen port number */
-    len = sizeof(my);
-    memset(&my, 0, sizeof(my));
-    if (getsockname(acs, (struct sockaddr *)&my, &len) == -1) {
-      /* getsockname failed */
-      s4err_rep(sr->s, S4EGENERAL);
-      close(acs);
-      return(-1);
-    }
-    /* first reply for bind request */
-    buf[0] = 0x00;
-    buf[1] = S4AGRANTED & 0xff;   /* succeeded */
-    memcpy(&buf[2], &(my.sin_port), 2);
-    memcpy(&buf[4], &(my.sin_addr), 4);
-    r = timerd_write(sr->s, buf, 8, TIMEOUTSEC);
-    if ( r < 8 ) {
-      /* could not reply */
-      close(sr->s);
-      close(acs);
-      return(-1);
-    }
-    if (wait_for_read(acs, TIMEOUTSEC) <= 0) {
-      s4err_rep(sr->s, S4EGENERAL);
-      close(acs);
-      return(-1);
-    }
-      
-    len = sizeof(struct sockaddr_in);
-    if ((cs = accept(acs, (struct sockaddr *)&my, &len)) < 0) {
-      s4err_rep(sr->s, S4EGENERAL);
-      close(acs);
-      return(-1);
-    }
-    close(acs); /* accept socket is not needed
-		   any more, for current socks spec. */
-    /* sock name is in my */
-    break;
-
-  default:
-    /* unsupported request */
-    s4err_rep(sr->s, S4EGENERAL);
-    return(-1);
-  }
-  buf[0] = 0;
-  buf[1] = S4AGRANTED & 0xff;   /* succeeded */
-  memcpy(&buf[2], &(my.sin_port), 2);
-  memcpy(&buf[4], &(my.sin_addr), 4);
-  r = timerd_write(sr->s, buf, 8, TIMEOUTSEC);
-  if ( r < 8 ) {
-    /* could not reply */
-    close(sr->s);
-    close(cs);
-    return(-1);
-  }
-  return(cs);   /* return forwarding socket */
-}
-void s4err_rep(int s, int code)
-{
-  char buf[8];
-  int r;
-
-  memset(buf, 0, sizeof(buf));
-  buf[0] = 0x04;
-  buf[1] = code & 0xff;   /* error code */
-  r = timerd_write(s, buf, 8, TIMEOUTSEC);
-  /* close client side socket here */
-  close(s);
-}
 
 /* socks5 protocol functions */
 int proto_socks5(int s)
 {
-  char buf[512];
-  char hostname[512];
-  int r, len;
-  struct hostent *h;
-#ifdef HAVE_GETHOSTBYNAME_R
-  struct hostent he;
-  char   ghwork[1024];
-  int    gherrno;
-#endif
-  struct sockaddr_in dest;
-  struct socks_req sr;
+  u_char    buf[512];
+  int     r, len;
+  struct  socks_req req;
 
-  memset(&sr, 0, sizeof sr);
-  sr.s = s;
-  sr.dest = &dest;
-  sr.hostname = hostname;
+  memset(&req, 0, sizeof(req));
+  req.s = s;
 
   /* peek first 5 bytes of request. */
   r = timerd_read(s, buf, sizeof(buf), TIMEOUTSEC, MSG_PEEK);
@@ -641,252 +793,64 @@ int proto_socks5(int s)
 
   if ( buf[0] != 0x05 ) {
     /* wrong version request */
-    s5err_rep(s, S5EGENERAL);
+    GEN_ERR_REP(s, 5);
     return(-1);
   }
 
-  sr.req = buf[1];
-  memset(&dest, 0, sizeof dest);
-  dest.sin_family = PF_INET;
-  memset(hostname, 0, sizeof hostname);
-  len = 0;
+  req.req = buf[1];
+  req.dest.atype = buf[3];  /* address type field */
 
-  sr.atype = buf[3];  /* address type field */
-  switch(sr.atype) {
+  switch(req.dest.atype) {
   case S5ATIPV4:  /* IPv4 address */
     r = timerd_read(s, buf, 4+4+2, TIMEOUTSEC, 0);
     if (r < 4+4+2) {     /* cannot read request (why?) */
-      s5err_rep(s, S5EGENERAL);
+      GEN_ERR_REP(s, 5);
       return(-1);
     }
-    memcpy(&(dest.sin_addr), &buf[4], 4);
-    memcpy(&(dest.sin_port), &buf[8], 2);
+    memcpy(&(req.dest.v4_addr), &buf[4], sizeof(struct in_addr));
+    req.port = buf[8] * 0x100 + buf[9];
     break;
+
+  case S5ATIPV6:
+    r = timerd_read(s, buf, 4+16+2, TIMEOUTSEC, 0);
+    if (r < 4+16+2) {     /* cannot read request (why?) */
+      GEN_ERR_REP(s, 5);
+      return(-1);
+    }
+    memcpy(&(req.dest.v6_addr), &buf[4], sizeof(struct in6_addr));
+    req.port = buf[20] * 0x100 + buf[21];
+    break;
+
   case S5ATFQDN:  /* string or FQDN */
     if ((len = buf[4]) < 0 || len > 255) {
       /* invalid length */
-      s5err_rep(s, S5EINVADDR);
+      socks_rep(s, 5, S5EINVADDR, 0);
+      close(s);
       return(-1);
     }
     r = timerd_read(s, buf, 4+1+len+2, TIMEOUTSEC, 0);
     if ( r < 4+1+len+2 ) {  /* cannot read request (why?) */
-      s5err_rep(s, S5EGENERAL);
+      GEN_ERR_REP(s, 5);
       return(-1);
     }
-    memcpy(hostname, &buf[5], len);
-    hostname[len] = '\0';
-    memcpy(&(dest.sin_port), &buf[4+1+len], 2);
+    memcpy(&(req.dest.fqdn), &buf[5], len);
+    req.dest.len_fqdn = len;
+    req.port = buf[4+1+len] * 0x100 + buf[4+1+len+1];
     break;
 
   default:
     /* unsupported address */
-    s5err_rep(s, S5EUSATYPE);
+    socks_rep(s, 5, S5EUSATYPE, 0);
+    close(s);
     return(-1);
   }
 
-  sr.tbl_ind = lookup_tbl(sr.atype, &dest, hostname);
-  if (sr.atype == S5ATFQDN && sr.tbl_ind == proxy_tbl_ind) {
-    /* fqdn request but, not particular routing */
-#if HAVE_GETHOSTBYNAME_R
-# ifdef SOLARIS
-    h = gethostbyname_r(hostname, &he,
-			ghwork, sizeof ghwork, &gherrno);
-# elif LINUX
-    gethostbyname_r(hostname, &he,
-		ghwork, sizeof ghwork, &h, &gherrno);
-# endif
-#else
-    MUTEX_LOCK(mutex_gh0);
-    h = gethostbyname(hostname);
-#endif
-    if (h != NULL) {       /* resolvable */
-      sr.atype = S5ATIPV4; /* revert atype */
-      memcpy(&(dest.sin_addr), h->h_addr_list[0], 4);
-      /* re-search table */
-      sr.tbl_ind = lookup_tbl(sr.atype, &dest, hostname);
-    }
-#ifndef HAVE_GETHOSTBYNAME_R
-    MUTEX_UNLOCK(mutex_gh0);
-#endif
+  req.tbl_ind = lookup_tbl(&req);
+  if (req.tbl_ind == proxy_tbl_ind ||                 /* do default */
+      proxy_tbl[req.tbl_ind].port == 0) {
+    return(socks_direct_conn(5, &req));
   }
-
-  if (sr.tbl_ind == proxy_tbl_ind ||                 /* do default */
-      proxy_tbl[sr.tbl_ind].proxy.s_addr == 0) {
-    if ( sr.atype == S5ATFQDN ) {
-#if HAVE_GETHOSTBYNAME_R
-# ifdef SOLARIS 
-      h = gethostbyname_r(hostname, &he,
-			ghwork, sizeof ghwork, &gherrno);
-# elif LINUX
-    gethostbyname_r(hostname, &he,
-		ghwork, sizeof ghwork, &h, &gherrno);
-# endif
-#else
-      MUTEX_LOCK(mutex_gh0);
-      h = gethostbyname(hostname);
-#endif
-      if (h == NULL) {
-	/* cannot resolve ?? */
-#ifndef HAVE_GETHOSTBYNAME_R
-	MUTEX_UNLOCK(mutex_gh0);
-#endif
-	s5err_rep(s, S5EINVADDR);
-	return(-1);
-      }
-      memcpy(&(dest.sin_addr), h->h_addr_list[0], 4);
-#ifndef HAVE_GETHOSTBYNAME_R
-      MUTEX_UNLOCK(mutex_gh0);
-#endif
-    }
-    return(s5direct_conn(&sr));
-  }
-  return(proxy_connect(5, &sr));
-}
-
-int s5direct_conn(struct socks_req *sr)
-{
-  int cs=0, acs;
-  int r, len;
-  struct sockaddr_in my, cl;
-  struct in_addr bindaddr;
-  char buf[512];
-
-  /* log the request */
-  log_request(5, sr, 0);
-
-  /* process direct connect/bind to destination */
-
-  /* process by_command request */
-  switch (sr->req) {   /* request */
-  case S5REQ_CONN:
-    if ((cs = socket(PF_INET, SOCK_STREAM, IPPROTO_IP)) == -1) {
-      /* socket error */
-      s5err_rep(sr->s, S5EGENERAL);
-      return(-1);
-    }
-    if (connect(cs, (struct sockaddr *)(sr->dest),
-		sizeof(struct sockaddr_in)) == -1) {
-      /* connect fail */
-      switch(errno) {
-      case ENETUNREACH:  s5err_rep(sr->s, S5ENETURCH); break;
-      case ECONNREFUSED: s5err_rep(sr->s, S5ECREFUSE); break;
-#ifndef _POSIX_SOURCE
-      case EHOSTUNREACH: s5err_rep(sr->s, S5EHOSURCH); break;
-#endif
-      case ETIMEDOUT:    s5err_rep(sr->s, S5ETTLEXPR); break; /* ??? */
-      default:           s5err_rep(sr->s, S5EGENERAL); break;
-      }
-      close(cs);
-      return(-1);
-    }
-    len = sizeof(my);
-    if (getsockname(cs, (struct sockaddr *)&my, &len) == -1) {
-      /* cannot get my socket name */
-      s5err_rep(sr->s, S5EGENERAL);
-      close(cs);
-      return(-1);
-    }
-    break;
-
-  case S5REQ_BIND:
-    if (get_bind_addr(&(sr->dest->sin_addr), &bindaddr) < 0 ||
-	bindaddr.s_addr == 0) {
-      s5err_rep(sr->s, S5EGENERAL);
-      return(-1);
-    }
-    len = sizeof(struct sockaddr_in);
-    memset(&my, 0, len);
-    my.sin_family = PF_INET;
-    my.sin_addr.s_addr = bindaddr.s_addr;
-
-    if ((acs = socket(PF_INET, SOCK_STREAM, IPPROTO_IP)) == -1) {
-      /* socket error */
-      s5err_rep(sr->s, S5EGENERAL);
-      return(-1);
-    }
-    my.sin_port = sr->dest->sin_port;   /* set requested bind port */
-    if (bind_sock(acs, &my) != -1)
-      goto s5bind_ok;
-
-    /* bind failed for requested port */
-    len = sizeof(cl);
-    if (getpeername(sr->s, (struct sockaddr *)&cl, &len) == 0) {
-      my.sin_port = cl.sin_port;
-      if (bind_sock(acs, &my) != -1)
-	goto s5bind_ok;
-    }
-
-    /* try bind to free-port */
-    my.sin_port = 0;
-    if (bind_sock(acs, &my) == -1) {
-      /* bind failed either */
-      s5err_rep(sr->s, S5EGENERAL);
-      close(acs);
-      return(-1);
-    }
-
-  s5bind_ok:
-    listen(acs, 64);
-    /* get my socket name again to acquire an
-       actual listen port number */
-    len = sizeof(my);
-    memset(&my, 0, sizeof(my));
-    if (getsockname(acs, (struct sockaddr *)&my, &len) == -1) {
-      /* getsockname failed */
-      s5err_rep(sr->s, S5EGENERAL);
-      close(acs);
-      return(-1);
-    }
-    /* first reply for bind request */
-    buf[0] = 0x05;
-    buf[1] = 0;   /* succeeded */
-    buf[2] = 0;
-    buf[3] = 0x01;  /* addr type fixed to IPv4 */
-    memcpy(&buf[4], &(my.sin_addr), 4);
-    memcpy(&buf[8], &(my.sin_port), 2);
-    r = timerd_write(sr->s, buf, 10, TIMEOUTSEC);
-    if ( r < 10 ) {
-      /* could not reply */
-      close(sr->s);
-      close(acs);
-      return(-1);
-    }
-    if (wait_for_read(acs, TIMEOUTSEC) <= 0) {
-      s5err_rep(sr->s, S5EGENERAL);
-      close(acs);
-      return(-1);
-    }
-      
-    len = sizeof(struct sockaddr_in);
-    if ((cs = accept(acs, (struct sockaddr *)&my, &len)) < 0) {
-      s5err_rep(sr->s, S5EGENERAL);
-      close(acs);
-      return(-1);
-    }
-    close(acs); /* accept socket is not needed
-		   any more, for current socks spec. */
-    /* sock name is in my */
-    break;
-
-  default:
-    /* unsupported request */
-    s5err_rep(sr->s, S5EUNSUPRT);
-    return(-1);
-  }
-  buf[0] = 0x05;
-  buf[1] = 0;     /* succeeded */
-  buf[2] = 0;
-  buf[3] = 0x01;  /* addr type fixed to IPv4 */
-  memcpy(&buf[4], &(my.sin_addr), 4);
-  memcpy(&buf[8], &(my.sin_port), 2);
-  r = timerd_write(sr->s, buf, 10, TIMEOUTSEC);
-  if ( r < 10 ) {
-    /* could not reply */
-    close(sr->s);
-    close(cs);
-    return(-1);
-  }
-  return(cs);   /* return forwarding socket */
+  return(proxy_connect(5, &req));
 }
 
 /*
@@ -894,7 +858,7 @@ int s5direct_conn(struct socks_req *sr)
 */
 int s5auth_s(int s)
 {
-  char buf[512];
+  u_char buf[512];
   int r, i, j, len;
   int method=0, done=0;
 
@@ -967,7 +931,7 @@ int s5auth_s(int s)
 */
 int s5auth_s_rep(int s, int method)
 {
-  char buf[2];
+  u_char buf[2];
   int r;
 
   /* reply to client */
@@ -987,7 +951,7 @@ int s5auth_s_rep(int s, int method)
 */
 int s5auth_c(int s, int ind)
 {
-  char buf[512];
+  u_char buf[512];
   int r;
 
   /* auth method negotiation */
@@ -1020,19 +984,177 @@ int s5auth_c(int s, int ind)
   return(-1);
 }
 
-void s5err_rep(int s, int code)
+int socks_direct_conn(int ver, struct socks_req *req)
 {
-  char buf[10];
-  int r;
+  int    cs, acs = 0;
+  int    len;
+  struct addrinfo hints, *res, *res0;
+  struct addrinfo ba;
+  struct sockaddr_storage ss;
+  struct req_host_info info;
+  int    error = 0;
+  int    save_errno = 0;
 
-  memset(buf, 0, sizeof(buf));
-  buf[0] = 0x05;
-  buf[1] = code & 0xff;   /* error code */
-  buf[2] = 0;
-  buf[3] = 0x01;  /* addr type fixed to IPv4 */
-  r = timerd_write(s, buf, 10, TIMEOUTSEC);
-  /* close client side socket here */
-  close(s);
+  /* proxy_XX is N/A */
+  strcpy(info.proxy.host, "-");
+  strcpy(info.proxy.port, "-");
+  /* resolve addresses in request and log it */
+  error = resolv_host(&req->dest, req->port, &info.dest);
+  error = log_request(ver, req, &info);
+
+  if (error) {   /* error in name resolve */
+    GEN_ERR_REP(req->s, ver);
+    return(-1);
+  }
+
+  /* process direct connect/bind to destination */
+
+  /* process by_command request */
+  switch (req->req) {   /* request */
+  case S5REQ_CONN:
+    /* string addr => addrinfo */
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_socktype = SOCK_STREAM;
+    error = getaddrinfo(info.dest.host, info.dest.port, &hints, &res0);
+    if (error) {
+      /* getaddrinfo error */
+      GEN_ERR_REP(req->s, ver);
+      return(-1);
+    }
+    cs = -1;
+    for (res = res0; res; res = res->ai_next) {
+      save_errno = 0;
+      cs = socket(res->ai_family,
+                  res->ai_socktype, res->ai_protocol);
+      if ( cs < 0 ) {
+        /* socket error */
+        continue;
+      }
+
+      if (connect(cs, res->ai_addr, res->ai_addrlen) < 0) {
+        /* connect fail */
+	save_errno = errno;
+        close(cs);
+        continue;
+      }
+      len = sizeof(ss);
+      if (getsockname(cs, (struct sockaddr *)&ss, &len) < 0) {
+	save_errno = errno;
+	close(cs);
+	continue;
+      }
+      break;
+    }
+    freeaddrinfo(res0);
+    if (cs < 0 || save_errno != 0) {
+      /* any socket error */
+      switch (ver) {
+      case 0x04:
+	socks_rep(req->s, 4, S4EGENERAL, 0);
+	break;
+      case 0x05:
+	switch(save_errno) {
+	case ENETUNREACH:  socks_rep(req->s, 5, S5ENETURCH, 0); break;
+	case ECONNREFUSED: socks_rep(req->s, 5, S5ECREFUSE, 0); break;
+#ifndef _POSIX_SOURCE
+	case EHOSTUNREACH: socks_rep(req->s, 5, S5EHOSURCH, 0); break;
+#endif
+	case ETIMEDOUT:    socks_rep(req->s, 5, S5ETTLEXPR, 0); break; /* ??? */
+	default:           socks_rep(req->s, 5, S5EGENERAL, 0); break;
+	}
+	break;
+      default:
+	break;
+      }
+      close(req->s);
+      return(-1);
+    }
+    break;
+
+  case S5REQ_BIND:
+    memset(&ba, 0, sizeof(ba));
+    memset(&ss, 0, sizeof(ss));
+    ba.ai_addr = (struct sockaddr *)&ss;
+    ba.ai_addrlen = sizeof(ss);
+    /* just one address can be stored */
+    error = get_bind_addr(req, &ba);
+    if (error) {
+      GEN_ERR_REP(req->s, ver);
+      return(-1);
+    }
+    acs = -1;
+    acs = socket(ba.ai_family, ba.ai_socktype, ba.ai_protocol);
+    if (acs < 0) {
+      /* socket error */
+      GEN_ERR_REP(req->s, ver);
+      return(-1);
+    }
+
+    if (bind_sock(acs, req, &ba) != 0) {
+      GEN_ERR_REP(req->s, ver);
+      return(-1);
+    }
+
+    listen(acs, 64);
+    /* get my socket name again to acquire an
+       actual listen port number */
+    len = sizeof(ss);
+    if (getsockname(acs, (struct sockaddr *)&ss, &len) == -1) {
+      /* getsockname failed */
+      GEN_ERR_REP(req->s, ver);
+      close(acs);
+      return(-1);
+    }
+
+    /* first reply for bind request */
+    POSITIVE_REP(req->s, ver, (struct sockaddr *)&ss);
+    if ( error < 0 ) {
+      /* could not reply */
+      close(req->s);
+      close(acs);
+      return(-1);
+    }
+    if (wait_for_read(acs, TIMEOUTSEC) <= 0) {
+      GEN_ERR_REP(req->s, ver);
+      close(acs);
+      return(-1);
+    }
+      
+    len = sizeof(ss);
+    if ((cs = accept(acs, (struct sockaddr *)&ss, &len)) < 0) {
+      GEN_ERR_REP(req->s, ver);
+      close(acs);
+      return(-1);
+    }
+    close(acs); /* accept socket is not needed
+		   any more, for current socks spec. */
+    /* sock name is in ss */
+    break;
+
+  default:
+    /* unsupported request */
+    switch (ver) {
+    case 0x04:
+      socks_rep(req->s, 4, S4EGENERAL, 0);
+      break;
+    case 0x05:
+      socks_rep(req->s, 5, S5EUNSUPRT, 0);
+      break;
+    default:
+      break;
+    }
+    close(req->s);
+    return(-1);
+  }
+
+  POSITIVE_REP(req->s, ver, (struct sockaddr *)&ss);
+  if ( error < 0 ) {
+    /* could not reply */
+    close(req->s);
+    close(cs);
+    return(-1);
+  }
+  return(cs);   /* return forwarding socket */
 }
 
 /*   proxy socks functions  */
@@ -1041,24 +1163,21 @@ void s5err_rep(int s, int code)
 	   connect to next hop socks server.
            used in indirect connect to destination.
 */
-int proxy_connect(int ver, struct socks_req *sr)
+int proxy_connect(int ver, struct socks_req *req)
 {
   int s;
 
-  /* log the request */
-  log_request(ver, sr, 1);
-
   /* first try socks5 server */
-  s = connect_to_socks(5, sr);
+  s = connect_to_socks(5, req);
   if ( s >= 0 ) {
     /* succeeded */
     switch (ver) {
     case 0x04:
       /* client version differs.
 	 need v5 to v4 converted reply */
-      if (proxy_reply(5, sr->s, s, sr->req) != 0) {
+      if (proxy_reply(5, req->s, s, req->req) != 0) {
 	close(s);
-	s4err_rep(sr->s, S4EGENERAL);
+	GEN_ERR_REP(req->s, 4);
 	return(-1);
       }
       break;
@@ -1072,7 +1191,7 @@ int proxy_connect(int ver, struct socks_req *sr)
     }
   } else {      
     /* if an error, second try socks4 server */
-    s = connect_to_socks(4, sr);
+    s = connect_to_socks(4, req);
     /* succeeded */
     if ( s >= 0 ) { 
       switch (ver) {
@@ -1083,9 +1202,9 @@ int proxy_connect(int ver, struct socks_req *sr)
       case 0x05:
 	/* client version differs.
 	   need v4 to v5 converted reply */
-	if (proxy_reply(4, sr->s, s, sr->req) != 0) {
+	if (proxy_reply(4, req->s, s, req->req) != 0) {
 	  close(s);
-	  s5err_rep(sr->s, S5EGENERAL);
+	  GEN_ERR_REP(req->s, 5);
 	  return(-1);
 	}
 	break;
@@ -1094,29 +1213,30 @@ int proxy_connect(int ver, struct socks_req *sr)
 	break;
       }
     } else {  /* still be an error, give it up. */
-      switch (ver) {   /* client socks version */
-      case 0x04:
-	s4err_rep(sr->s, S4EGENERAL);
-	return(-1);
-      case 0x05:
-	s5err_rep(sr->s, S5EGENERAL);
-	return(-1);
-      default:
-	close(sr->s);
-	return(-1);
-      }
+      GEN_ERR_REP(req->s, ver);
+      return(-1);
     }
   }
   return(s);
 }
 
-int connect_to_socks(int ver, struct socks_req *sr)
+int connect_to_socks(int ver, struct socks_req *req)
 {
-  int cs;
-  int r, len;
-  struct sockaddr_in proxy;
-  char *username;
-  char buf[640];
+  int     cs;
+  int     r, len = 0;
+  struct  addrinfo hints, *res, *res0;
+  struct  req_host_info info;
+  int     error = 0;
+  char    *user;
+  u_char  buf[640];
+  int     save_errno = 0;
+
+  /* sanity check */
+  if (req->tbl_ind == proxy_tbl_ind ||
+      proxy_tbl[req->tbl_ind].port == 0) {
+    /* shoud not be here */
+    return -1;
+  }
 
   /* process proxy request to next hop socks */
 
@@ -1124,31 +1244,33 @@ int connect_to_socks(int ver, struct socks_req *sr)
   case 0x04:
     /* build v4 request */
     buf[0] = 0x04;
-    buf[1] = sr->req & 0xff;
-    if ( sr->username == NULL ) {
-      username = S4DEFUSR;
+    buf[1] = req->req;
+    if ( req->u_len == 0 ) {
+      user = S4DEFUSR;
+      r = strlen(user);
     } else {
-      username = sr->username;
+      user = req->user;
+      r = req->u_len;
     }
-    r = strlen(username);
     if (r < 0 || r > 255) {
       return(-1);
     }
-    memcpy(&buf[2], &(sr->dest->sin_port), 2);
-    memcpy(&buf[8], username, r);
+    buf[2] = (req->port / 256);
+    buf[3] = (req->port % 256);
+    memcpy(&buf[8], user, r);
     len = 8+r;
     buf[len++] = 0x00;
-    switch (sr->atype) {
+    switch (req->dest.atype) {
     case S4ATIPV4:
-      memcpy(&buf[4], &(sr->dest->sin_addr), 4);
+      memcpy(&buf[4], &(req->dest.v4_addr), sizeof(struct in_addr));
       break;
     case S4ATFQDN:
       buf[4] = buf[5] = buf[6] = 0; buf[7] = 1;
-      r = strlen(sr->hostname);
+      r = req->dest.len_fqdn;
       if (r <= 0 || r > 255) {
 	return(-1);
       }
-      memcpy(&buf[len++], sr->hostname, r);
+      memcpy(&buf[len++], &(req->dest.fqdn), r);
       len += r;
       buf[len++] = 0x00;
       break;
@@ -1160,23 +1282,27 @@ int connect_to_socks(int ver, struct socks_req *sr)
   case 0x05:
     /* build v5 request */
     buf[0] = 0x05;
-    buf[1] = sr->req & 0xff;
+    buf[1] = req->req;
     buf[2] = 0;
-    buf[3] = sr->atype & 0xff;
-    switch (sr->atype) {
+    buf[3] = req->dest.atype;
+    switch (req->dest.atype) {
     case S5ATIPV4:
-      memcpy(&buf[4], &(sr->dest->sin_addr), 4);
-      memcpy(&buf[8], &(sr->dest->sin_port), 2);
+      memcpy(&buf[4], &(req->dest.v4_addr), 4);
+      buf[8] = (req->port / 256);
+      buf[9] = (req->port % 256);
       len = 10;
       break;
+    case S5ATIPV6:
+      memcpy(&buf[4], &(req->dest.v6_addr), 16);
+      buf[20] = (req->port / 256);
+      buf[21] = (req->port % 256);
+      len = 22;
+      break;
     case S5ATFQDN:
-      len = strlen(sr->hostname);
-      if (len <= 0 || len > 255) {
-	return(-1);
-      }
-      buf[4] = len & 0xff;
-      memcpy(&buf[5], sr->hostname, len);
-      memcpy(&buf[5+len], &(sr->dest->sin_port), 2);
+      buf[4] = req->dest.len_fqdn;
+      memcpy(&buf[5], &(req->dest.fqdn), len);
+      buf[5+len]   = (req->port / 256);
+      buf[5+len+1] = (req->port % 256);
       len = 5+len+2;
       break;
     default:
@@ -1187,29 +1313,55 @@ int connect_to_socks(int ver, struct socks_req *sr)
     return(-1);   /* unknown version */
   }
 
-  if ((cs = socket(PF_INET, SOCK_STREAM, IPPROTO_IP)) == -1) {
-    /* socket error */
-    return(-1);
+  /* resolve addresses in request and log it */
+  error = resolv_host(&req->dest, req->port, &info.dest);
+  error = resolv_host(&(proxy_tbl[req->tbl_ind].proxy),
+			proxy_tbl[req->tbl_ind].port,
+			&info.proxy);
+  error = log_request(ver, req, &info);
+  if (error) {
+    return (-1);
   }
 
-  memset(&proxy, 0, sizeof proxy);
-  proxy.sin_family = PF_INET;
-  memcpy(&(proxy.sin_addr), &(proxy_tbl[sr->tbl_ind].proxy), 4);
-  proxy.sin_port = htons(proxy_tbl[sr->tbl_ind].port);
-
-  if (connect(cs, (struct sockaddr *)&proxy, sizeof proxy) == -1) {
-    close(cs);
+  /* string addr => addrinfo */
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_socktype = SOCK_STREAM;
+  
+  error = getaddrinfo(info.proxy.host, info.proxy.port, &hints, &res0);
+  if (error) {
+    /* getaddrinfo error */
     return(-1);
+  }
+  cs = 0;
+  for (res = res0; res; res = res->ai_next) {
+    save_errno = 0;
+    cs = socket(res->ai_family,
+		res->ai_socktype, res->ai_protocol);
+    if ( cs < 0 ) {
+      continue;
+    }
+
+    if (connect(cs, res->ai_addr, res->ai_addrlen) < 0) {
+      /* connect fail */
+      save_errno = errno;
+      close(cs);
+      continue;
+    }
+    break;
+  }
+  freeaddrinfo(res0);
+  if (cs < 0 || save_errno != 0) {
+    return -1;
   }
 
   if (ver == 0x05) {
-    if (s5auth_c(cs, sr->tbl_ind) != 0) {
+    if (s5auth_c(cs, req->tbl_ind) != 0) {
       /* socks5 auth nego to next hop failed */
       close(cs);
       return(-1);
     }
   }
-      
+
   r = timerd_write(cs, buf, len, TIMEOUTSEC);
   if ( r < len ) {
     /* could not send request */
@@ -1221,15 +1373,13 @@ int connect_to_socks(int ver, struct socks_req *sr)
 
 int proxy_reply(int v, int cs, int ss, int req)
 {
-  int  r, c=0, len=0;
-  char buf[512];
-  char rep[512];
-  struct hostent *h;
-#ifdef HAVE_GETHOSTBYNAME_R
-  struct hostent he;
-  char   ghwork[1024];
-  int    gherrno;
-#endif
+  int     r, c, len;
+  u_char  buf[512];
+  u_char  rep[512];
+  struct  addrinfo hints, *res, *res0;
+  int     error;
+  struct  sockaddr_in *sa = 0;
+  int found = 0;
 
   /* v:
         4: 4 to 5,  5: 5 to 4
@@ -1300,27 +1450,25 @@ int proxy_reply(int v, int cs, int ss, int req)
 	len = buf[4] & 0xff;
 	memcpy(&rep[2], &buf[5+len], 2);
 	buf[5+len] = '\0';
-#if HAVE_GETHOSTBYNAME_R
-# ifdef SOLARIS
-	h = gethostbyname_r(&buf[5], &he,
-			ghwork, sizeof ghwork, &gherrno);
-# elif LINUX
-	gethostbyname_r(&buf[5], &he,
-			ghwork, sizeof ghwork, &h, &gherrno);
-# endif
-#else
-	MUTEX_LOCK(mutex_gh0);
-	h = gethostbyname(&buf[5]);
-#endif
-	if (h == NULL) {
-	  /* cannot resolve ?? */
-	  rep[4] = rep[5] = rep[6] = 0; rep[7]=1;
-	} else {
-	  memcpy(&rep[4], h->h_addr_list[0], 4);
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_family = AF_INET;
+	error = getaddrinfo(&buf[5], NULL, &hints, &res0);
+	if (error) {
+	  /* getaddrinfo error */
+	  return -1;
 	}
-#ifndef HAVE_GETHOSTBYNAME_R
-	MUTEX_UNLOCK(mutex_gh0);
-#endif
+	for (res = res0; res; res = res->ai_next) {
+	  if (res->ai_socktype != AF_INET)
+	    continue;
+	  sa = (struct sockaddr_in *)res->ai_addr;
+	  found++; break;
+	}
+	freeaddrinfo(res0);
+	if (!found) {
+	  return -1;
+	}
+	memcpy(&res[4], &(sa->sin_addr), sizeof(struct in_addr));
 	break;
       }
       timerd_write(cs, rep, 8, TIMEOUTSEC);

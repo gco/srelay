@@ -55,7 +55,22 @@ if test "$libwrap" != "no"; then
    fi
    AC_CHECK_HEADER(tcpd.h, AC_DEFINE(HAVE_TCPD_H), tcpdh="no")
    if test "$tcpdh" != "no"; then
-      AC_CHECK_LIB(wrap, hosts_ctl)
+      if test "$OS" = "LINUX"; then
+          AC_MSG_CHECKING([for hosts_ctl in -lwrap])
+          saveLIBS="$LIBS"
+	  LIBS="-lwrap -lnsl $LIBS"
+	  AC_COMPILE_IFELSE(
+	      AC_LANG_PROGRAM([
+[int allow_severity;]
+[int deny_severity;]],
+[[hosts_ctl();]]),
+	AC_DEFINE(HAVE_LIBWRAP)
+	AC_MSG_RESULT([yes]),
+	LIBS="$saveLIBS"
+	AC_MSG_RESULT([no]))
+      else
+	  AC_CHECK_LIB(wrap, hosts_ctl)
+      fi
    fi
 fi
 
@@ -142,12 +157,13 @@ AC_CHECK_MEMBER(struct sockaddr.sa_len,
 
 dnl Checks for library functions.
 AC_TYPE_SIGNAL
-AC_CHECK_FUNCS(select\
+AC_CHECK_FUNCS(\
+		select\
 		socket\
-		inet_addr\
-		inet_pton\
-		inet_ntop\
-		gethostbyname_r)
+		getaddrinfo\
+		getnameinfo\
+		freeaddrinfo\
+		)
 
 AC_OUTPUT(Makefile)
 

@@ -157,9 +157,9 @@ void cleanup()
 {
   /* unlink PID file */
   if (pidfile != NULL) {
-    seteuid(0);
+    setreuid(PROCUID, 0);
     unlink(pidfile);
-    seteuid(PROCUID);
+    setreuid(0, PROCUID);
   }
   msg_out(norm, "sig TERM received. exitting...");
   exit(0);
@@ -225,27 +225,6 @@ int releasesignal(int sig)
   else
     return sigismember(&oset, sig);
 }
-
-#ifndef HAVE_INET_PTON
-int inet_pton(int af, char *src, void *dst)
-{
-#ifdef HAVE_INET_ADDR
-  in_addr_t addr;
-
-  if (src == NULL || dst == NULL)
-    return(0);
-
-  if (af != PF_INET)
-    return(0);
-
-  if ((addr = inet_addr(src)) != -1) {
-    memcpy(dst, &addr, sizeof(in_addr_t));
-    return(1);
-  }
-#endif  
-  return(0);
-}
-#endif
 
 static pid_t    *proclist = NULL;
 static int      proclist_size = 0;

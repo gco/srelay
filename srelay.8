@@ -2,7 +2,7 @@
 .\" Copyright (c) 2001, Tomo.M
 .\" All Rights Reserved
 .\" $Id$
-.TH srelay 8 "16 Jun 2002"
+.TH srelay 8 "27 Mar 2003"
 .if n .tr \--
 .SH NAME
 srelay \- socks protocol server.
@@ -22,7 +22,11 @@ The \fBsrelay\fP has following features.
 .br
 - support username/password authentication.
 .br
-- using Tcp_wrappers(libwrap) in connection control.
+- connection control with tcp_wrappers(libwrap).
+.br
+- support IPv6 as well as IPv4 (hopefully).
+.br
+- You can build IPv4 <-> IPv6 gateway with the srelay.
 .br
 - nicely cope(relay) with NEC's SOCKSv5 reference implementation servers.
 .br
@@ -86,19 +90,21 @@ Specifing the server listening ports are in following format.
 .B \-i \fI 192.168.1.5 \fP
 Single IP spec. If no port number is specified, defaults to 1080/tcp. Server socket will be 192.168.1.5 port 1080.
 .TP
-.B \-i \fI 192.168.1.5/9999 \fP
+.B \-i \fI 192.168.1.5:9999 \fP
 Single IP with port. Server socket will be 192.168.1.5 port 9999.
 .TP
-.B \-i \fI my.socks.host/5432 \fP
+.B \-i \fI my.socks.host:5432 \fP
 Hostname is also accepted.
 .TP
-.B \-i \fI /1234 \fP
+.B \-i \fI :1234 \fP
 No host IP or hostname is specified. Server socket will be INADDR_ANY port 1234.
 .TP
-.B \-i \fI 192.168.1.5,socks.domain.name/5555,10.10.1.2 \fP
-multiple port assignment. if your host has more than one IP address, this works.
+.B \-i \fI '[2003:268:1234:4321:250:8bff:fea8:1234]:1234'
+IPv6 address must be surrounded by '[' and ']'. In most of the cases, you have to escape '[' and ']' characters against your shell.
 .P
-If no \fB -i \fP option is specified, default port is \fI INADDR_ANY port 1080 \fP.
+\fB -i \fP options can be appear multiple times if you'd like to have a lot of holes.
+.P
+If no \fB -i \fP option is specified, default port is \fI INADDR_ANY/INADDR6_ANY port 1080 \fP.
 .SS Authentication method
 .P
 The socks version 5 authentication is mechanism for authenticate the server user.
@@ -128,11 +134,22 @@ Configuration file format.
 .br
 223.224.2.128/25		-511		10.11.22.2
 .br
-# any other destination		any port
+# IPv6 destinations go through Gateway
+.br
+::				-		100.200.1.1
+.br
+# IPv4 destinations go through another Gateway
+.br
+0.0.0.0				-		100.200.1.2
+.br
+# (IPv6 to IPv4 destinations)
+.br
+0.0.0.0				-	3002::1:4321:250:8bff:ffa8:1234
 .br
 # no next-hop means connect direct.
 .br
-0.0.0.0				-
+1.2.3.4				-
+.br
 .SS srelay.passwd
 Username/Password information for connecting next-hop socks server.
 .br

@@ -51,8 +51,9 @@ int auth_pwd_server(int s)
   int  r, len;
   char user[256];
   char pass[256];
-  struct sockaddr_in client;
-  char client_ip[16];
+  struct sockaddr_storage client;
+  char client_ip[NI_MAXHOST];
+  int  error = 0;
   int  code = 0;
 
   r = timerd_read(s, buf, sizeof(buf), TIMEOUTSEC, MSG_PEEK);
@@ -100,12 +101,14 @@ int auth_pwd_server(int s)
   r = checkpasswd(user, pass);
 
   /* logging */
-  len = sizeof(struct sockaddr_in);
+  len = sizeof(struct sockaddr_storage);
   if (getpeername(s, (struct sockaddr *)&client, &len) != 0) {
     client_ip[0] = '\0';
   } else {
-    if (inet_ntop(AF_INET, &(client.sin_addr),
-                  client_ip, sizeof client_ip) == NULL) {
+    error = getnameinfo((struct sockaddr *)&client, len,
+			client_ip, sizeof(client_ip),
+			NULL, 0, NI_NUMERICHOST);
+    if (error) {
       client_ip[0] = '\0';
     }
   }
@@ -138,9 +141,9 @@ int auth_pwd_client(int s, int ind)
   char pass[256];
 
   /* get username/password */
-  seteuid(0);
+  setreuid(PROCUID, 0);
   fp = fopen(pwdfile, "r");
-  seteuid(PROCUID);
+  setreuid(0, PROCUID);
   if ( fp == NULL ) {
     /* cannot open pwdfile */
     return(-1);
@@ -210,9 +213,9 @@ int checkpasswd(char *user, char *pass)
   }
 
 #if defined(FREEBSD) || defined(LINUX)
-  seteuid(0);
+  setreuid(PROCUID, 0);
   pwd = getpwnam(user);
-  seteuid(PROCUID);
+  setreuid(0, PROCUID);
   if (pwd == NULL) {
     /* error in getpwnam */
     return(-1);
@@ -229,9 +232,9 @@ int checkpasswd(char *user, char *pass)
   memset(pwd->pw_passwd, 0, strlen(pwd->pw_passwd));
 
 #elif SOLARIS
-  seteuid(0);
+  setreuid(PROCUID, 0);
   spwd = getspnam_r(user, &sp, buf, sizeof buf);
-  seteuid(PROCUID);
+  setreuid(0, PROCUID);
   if (spwd == NULL) {
     /* error in getspnam */
     return(-1);

@@ -2,6 +2,15 @@
 #  Changes
 #  $Id$
 #
+0.4.5 (2003/03/27) - alpha to beta quality
+  + Almost all rewritten to support IPv6
+  + TODO:
+	SOCKS-BIND in IPv6 not implemented yet.
+	Solaris 2.6 support has gone for a while.
+	Solaris 8 support will be done for a while.
+	Connection Loop detection.
+	Bug Fix (may be :-p)
+
 0.4.0a (2003/01/16)
   + remove unsed struct thread_tab.
   + remove unsed argument of serv_loop().

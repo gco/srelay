@@ -39,6 +39,8 @@ char *skip   __P((char *));
 char *spell  __P((char *));
 void add_entry __P((struct rtbl *, struct rtbl *, int));
 void parse_err __P((int, int, char *));
+int dot_to_masklen __P((char *));
+int str_to_addr __P((char *, struct bin_addr *));
 
 #define MAXLINE  1024
 #define SP        040
@@ -55,7 +57,7 @@ void parse_err __P((int, int, char *));
 #define PORT_MAX  65535
 
 struct rtbl *proxy_tbl;    /* proxy routing table */
-int proxy_tbl_ind;         /* next entry indicator */
+int    proxy_tbl_ind;         /* next entry indicator */
 
 /*
   config format:
@@ -79,23 +81,20 @@ int proxy_tbl_ind;         /* next entry indicator */
 
 int readconf(FILE *fp)
 {
-  char *p, *q, *r, *tok;
-  int i, len, err, c;
-  struct in_addr zero;
-  int n = 0;
-  char *any = "any";
+  char     *p, *q, *r, *tok;
+  int      len;
+  int      n = 0;
+  char     *any = "any";
+  char     buf[MAXLINE];
   struct rtbl tmp;
   struct rtbl tmp_tbl[MAX_ROUTE];
-  char buf[MAXLINE];
-  struct hostent *h;
   struct rtbl *new_proxy_tbl;
-  int new_proxy_tbl_ind = 0;
+  int      new_proxy_tbl_ind = 0;
 
   while (fp && fgets(buf, MAXLINE-1, fp) != NULL) {
     memset(&tmp, 0, sizeof(struct rtbl));
     p = buf;
     n++;
-    err = 0;
 
     if ((p = skip(p)) == NULL) { /* comment line or something */
       continue;
@@ -103,70 +102,31 @@ int readconf(FILE *fp)
 
     /* destination */
     tok = p; p = spell(p);
-    /* check whether dest is numeric IP or FQDN */
-    len = strlen(tok);
-    tmp.atype = S5ATIPV4;
-    for (i=0; i<len; i++) {
-      c = *(tok+i);
-      if ( c != '.' && c != '/' && (c < '0' || c > '9')) {
-	/* dest contains non-numeric character */
-	tmp.atype = S5ATFQDN;
-	break;
+    q = strchr(tok, '/');
+    /* check wheather dest has address mask */
+    if (q != NULL) {
+      *q++ = '\0';  /* delimit */
+      tmp.mask = 0;
+      len = strlen(q);
+      if ( len > 0 ) {
+	if ((r = strchr(q, '.')) != NULL) { /* may be dotted decimal */
+	  if ((tmp.mask = dot_to_masklen(q)) < 0) {
+	      parse_err(warn, n, "parse_addr error.");
+	      continue;
+	  }
+	} else {
+	  tmp.mask = atoi(q);
+	  if ( errno == ERANGE ) {
+	    parse_err(warn, n, "parse mask length.");
+	    continue;
+	  }
+	}
       }
     }
 
-    switch (tmp.atype) {
-    case S5ATFQDN:
-      /* destination may be domain name */
-      tmp.len = strlen(tok);
-      tmp.domain = strdup(tok);  /* strdup dynamically allocates mem */
-      if ( tmp.domain == NULL ) {
-	/* can't allocate memory. it's fatal, but ... */
-	parse_err(warn, n, "memory allocation error(domain).");
-	err++;
-      }
-      break;
-    case S5ATIPV4:
-      /* dest ip and mask */
-      q = strchr(tok, '/');  /* check dest mask sep. */
-      if (q != NULL) {       /* there is a mask expression */
-	*q++ = '\0';
-	r = strchr(q, '.');  /* check mask format */
-	if (r != NULL) {     /* may be dotted notation */
-	  if ( inet_pton(AF_INET, q, &(tmp.mask)) != 1 ) {
-	    parse_err(warn, n, "parse dest addr mask.");
-	    err++; break;
-	  }
-	} else {             /* may be numeric notation */
-	  if ( *q < '0' || *q > '9' ) { /* check slightly */
-	    parse_err(warn, n, "parse dest addr mask.");
-	    err++; break;
-	  }
-	  i = atoi(q);
-	  if ( i < 0 || i > 32) {     /* more check */
-	    parse_err(warn, n, "parse dest addr mask.");
-	    err++; break;
-	  }
-	  tmp.mask.s_addr = htonl(0xffffffff<<(32-i));
-	}
-      } else {             /* there isn't mask exp. */
-	tmp.mask.s_addr = htonl(0xffffffff);
-      }
-      if ( inet_pton(AF_INET, tok, &(tmp.dest)) != 1 ) {
-	parse_err(warn, n, "parse dest addr.");
-	err++; break;
-      }
-      memset(&zero, 0, sizeof zero);
-      if (memcmp(&(tmp.dest), &zero, sizeof zero) == 0) {
-	/* dest is 0.0.0.0, so mask forcibly be zeroed */
-	memset(&(tmp.mask), 0, sizeof tmp.mask);
-      }
-      break;
-    default:
-      parse_err(warn, n, "unsupported address type.");
-      err++; break;
-    }
-    if ( err > 0 ) { /* there is an error in one of cases */
+    /* copy dest to tmp.dest */
+    if (str_to_addr(tok, &tmp.dest) != 0) {
+      parse_err(warn, n, "parse_addr error.");
       continue;
     }
 
@@ -211,10 +171,8 @@ int readconf(FILE *fp)
 
     /* proxy */
     tok = p; p = spell(p);
-    if ((h = gethostbyname(tok)) != NULL) {
-      memcpy(&(tmp.proxy), h->h_addr_list[0], 4);
-    } else {
-      parse_err(warn, n, "parse proxy address.");
+    if (str_to_addr(tok, &tmp.proxy) != 0) {
+      parse_err(warn, n, "proxy address parse error.");
       continue;
     }
 
@@ -251,6 +209,7 @@ int readconf(FILE *fp)
   }
   memcpy(new_proxy_tbl, tmp_tbl,
 	 sizeof(struct rtbl) * new_proxy_tbl_ind);
+
   if (proxy_tbl != NULL) { /* may holds previous table */
     free(proxy_tbl);
   }
@@ -287,14 +246,133 @@ void add_entry(struct rtbl *r, struct rtbl *t, int ind)
     /* error in add_entry */
     return;
   }
-  /* convert dest addr to dest network address */
-  r->dest.s_addr &= r->mask.s_addr;
   memcpy(&t[ind], r, sizeof(struct rtbl));
 }
 
 void parse_err(int sev, int line, char *msg)
 {
   msg_out(sev, "%s: line %d: %s\n", CONFIG, line, msg);
+}
+
+int str_to_addr(char *addr, struct bin_addr *dest)
+{
+  char     *q;
+  int      len, i, c;
+  struct addrinfo hints, *res0, *res;
+  int      error;
+  struct sockaddr_in   *sa;
+  struct sockaddr_in6  *sa6;
+
+  /* check address type */
+  q = strchr(addr, ':');
+  if (q != NULL) {
+    dest->atype = S5ATIPV6;
+  } else {
+    dest->atype = S5ATIPV4;
+    len = strlen(addr);
+    for (i=0; i<len; i++) {
+      c = *(addr+i);
+      if ( c != '.' && (c < '0' || c > '9')) {
+	/* addr contains non-numeric character */
+	dest->atype = S5ATFQDN;
+	break;
+      }
+    }
+  }
+
+  error = 0;
+  /* copy address to structure */
+  switch (dest->atype) {
+  case S5ATFQDN:
+    if ((len = strlen(addr)) > 0 && len < 256) {
+      dest->len_fqdn = len;
+      strncpy(dest->fqdn, addr, len);
+    } else {
+      error++;
+    }
+    break;
+
+  case S5ATIPV4:
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_NUMERICHOST;
+    error = getaddrinfo(addr, NULL, &hints, &res0);
+    if (!error) {
+      int done = 0;
+      for (res = res0; res; res = res->ai_next) {
+	if (res->ai_family != AF_INET)
+	  continue;
+	sa = (struct sockaddr_in *)res->ai_addr;
+	memcpy(dest->v4_addr, &(sa->sin_addr), sizeof(struct sockaddr_in));
+	done = 1;
+	break;
+      }
+      if (!done)
+	error++;
+      freeaddrinfo(res0);
+    }
+    break;
+
+  case S5ATIPV6:
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET6;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_NUMERICHOST;
+    error = getaddrinfo(addr, NULL, &hints, &res0);
+    if (!error) {
+      int done = 0;
+      for (res = res0; res; res = res->ai_next) {
+	if (res->ai_family != AF_INET6)
+	  continue;
+	sa6 = (struct sockaddr_in6 *)res->ai_addr;
+	memcpy(dest->v6_addr, &(sa6->sin6_addr), sizeof(struct sockaddr_in6));
+	done = 1;
+	break;
+      }
+      if (!done)
+	error++;
+      freeaddrinfo(res0);
+    }
+    break;
+  default:
+    error++;
+    break;
+  }
+  return error;
+}
+
+int dot_to_masklen(char *addr)
+{
+  /* Address family dependant */
+
+  struct addrinfo  hints, *res;
+  int    i, error;
+  unsigned int xx;
+  struct sockaddr_in *sin;
+
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_family = AF_INET;
+  hints.ai_flags = AI_NUMERICHOST;
+  error = getaddrinfo(addr, NULL, &hints, &res);
+  if (error) {
+    return -1;
+  }
+  if (res->ai_family != AF_INET) {  /*** !!! ***/
+    freeaddrinfo(res);
+    return -1;
+  }
+
+  sin = (struct sockaddr_in *)res->ai_addr;
+  xx = sin->sin_addr.s_addr & 0xffffffff;
+  for (i=32; i>0; i--) {
+    if ( xx & 1 )
+      break;
+    xx >>= 1;
+  }
+  freeaddrinfo(res);
+  return i;
 }
 
 /*
@@ -312,19 +390,15 @@ void parse_err(int sev, int line, char *msg)
 int readpasswd(FILE *fp, int ind, 
 	       char *user, int ulen, char *pass, int plen)
 {
-  char buf[MAXLINE];
-  char *p, *tok;
-  int  r, len;
-  struct in_addr proxy;
-  struct hostent *h;
-#ifdef HAVE_GETHOSTBYNAME_R
-  struct hostent he;
-  char   ghwork[1024];
-  int    gherrno;
-#endif
+  char     buf[MAXLINE];
+  char     *p, *tok;
+  int      len;
+  struct   bin_addr addr;
+  int      matched;
 
-  proxy.s_addr = proxy_tbl[ind].proxy.s_addr;
-  if (proxy.s_addr == 0) {
+  memset(&addr, 0, sizeof(addr));
+
+  if (memcmp(&(proxy_tbl[ind].proxy), &addr, sizeof(addr)) == 0) {
     /* it must be no-proxy. how did you fetch up here ?
        any way, you shouldn't be hanging aroud.
     */
@@ -336,36 +410,35 @@ int readpasswd(FILE *fp, int ind,
       continue;
     }
     /* proxy host ip/name entry */
-    tok = p; p = spell(p);
-#ifdef HAVE_GETHOSTBYNAME_R
-# ifdef SOLARIS
-    if ((h = gethostbyname_r(tok, &he,
-		ghwork, sizeof ghwork, &gherrno)) == NULL) {
-      /* name resolv failed */
+    tok = p; p = spell(p); len = strlen(tok);
+    if (str_to_addr(tok, &addr) != 0)  /* error */
+      continue;
+
+    if (proxy_tbl[ind].proxy.atype != addr.atype) {
+      /* address type mismatched */
       continue;
     }
-# elif LINUX
-    if (gethostbyname_r(tok, &he,
-		ghwork, sizeof ghwork, &h, &gherrno) != 0) {
-      /* name resolv failed */
+
+    matched = 0;
+    switch (addr.atype) {
+    case S5ATFQDN:
+      if (strncasecmp(proxy_tbl[ind].proxy.fqdn,
+		      addr.fqdn, proxy_tbl[ind].proxy.len_fqdn) == 0)
+	matched++;
+      break;
+    case S5ATIPV4:
+      if (memcmp(proxy_tbl[ind].proxy.v4_addr, addr.v4_addr, 4) == 0)
+	matched++;
+      break;
+    case S5ATIPV6:
+      if (memcmp(proxy_tbl[ind].proxy.v6_addr, addr.v6_addr, 16) == 0)
+	matched++;
+      break;
+    default:
+      break;
+    }
+    if (!matched)
       continue;
-    }
-# endif
-    r = memcmp(&proxy, h->h_addr_list[0], 4);
-#else
-    MUTEX_LOCK(mutex_gh0);
-    if ((h = gethostbyname(tok)) == NULL) {
-      /* name resolv failed */
-      MUTEX_UNLOCK(mutex_gh0);
-      continue;
-    }
-    r = memcmp(&proxy, h->h_addr_list[0], 4);
-    MUTEX_UNLOCK(mutex_gh0);
-#endif
-    if (r != 0) {
-	/* proxy address not matched */
-	continue;
-    }
 
     if ((p = skip(p)) == NULL) {
       /* insufficient fields, ignore this line */
@@ -402,38 +475,99 @@ int readpasswd(FILE *fp, int ind,
 }
 
 #if 0
-
+/* how to do with #if 1 */
+/* make readconf.o util.o
+   gcc -pthread -o readconf readconf.o util.o
+   ./readconf conf
+*/
 /* dummy */
 char *pidfile;
 int cur_child;
+int sig_queue[2];
+int threading;
+pthread_t main_thread;
+char *config;
+/* dummy */
+
+int resolv_host(struct bin_addr *addr, char *p, int l)
+{
+  int    len, error;
+  struct sockaddr_storage ss;
+  struct sockaddr_in  *sa;
+  struct sockaddr_in6 *sa6;
+
+  struct in6_addr in6addr_any = IN6ADDR_ANY_INIT;
+  struct in_addr  inaddr_any;
+
+  inaddr_any.s_addr = INADDR_ANY;
+
+
+  memset(&ss, 0, sizeof(ss));
+  switch (addr->atype) {
+  case S5ATIPV4:
+    len = sizeof(struct sockaddr_in);
+    sa = (struct sockaddr_in *)&ss;
+    sa->sin_family = AF_INET;
+    memcpy(&sa->sin_addr, &(addr->v4_addr), len);
+    sa->sin_len = len;
+    error = getnameinfo((struct sockaddr *)sa, len,
+			p, l, NULL, 0, NI_NUMERICHOST);
+    if (error) {
+      strncpy(p, "<error>", l);
+    }
+    if (memcmp(&(addr->v4_addr), &inaddr_any,
+	       sizeof(inaddr_any)) == 0) {
+      strncat(p, "(INADDR_ANY)", l);
+    }
+    break;
+  case S5ATIPV6:
+    len = sizeof(struct sockaddr_in6);
+    sa6 = (struct sockaddr_in6 *)&ss;
+    sa6->sin6_family = AF_INET6;
+    memcpy(&sa6->sin6_addr, &(addr->v6_addr), len);
+    sa6->sin6_len = len;
+    error = getnameinfo((struct sockaddr *)sa6, len,
+			p, l, NULL, 0,	NI_NUMERICHOST);
+    if (error) {
+      strncpy(p, "<error>", l);
+    }
+    if (memcmp(&(addr->v6_addr), &in6addr_any,
+	       sizeof(in6addr_any)) == 0) {
+      strncat(p, "(IN6ADDR_ANY)", l);
+    }
+    break;
+  case S5ATFQDN:
+  default:
+    strncpy(p, addr->fqdn, addr->len_fqdn);
+    p[addr->len_fqdn] = '\0';
+    break;
+  }
+  return 0;
+}
 
 void dump_entry()
 {
-  int i;
-  char ip[16];
+  int    i;
+  char   host[NI_MAXHOST];
 
   for (i=0; i < proxy_tbl_ind; i++) {
     fprintf(stdout, "--- %d ---\n", i);
-    fprintf(stdout, "atype: %d\n", proxy_tbl[i].atype);
-    inet_ntop(AF_INET, &(proxy_tbl[i].dest), ip, sizeof ip);
-    ip[(sizeof ip) - 1] = '\0'; 
-    fprintf(stdout, "dest: %s\n", ip);
-    inet_ntop(AF_INET, &(proxy_tbl[i].mask), ip, sizeof ip);
-    ip[(sizeof ip) - 1] = '\0'; 
-    fprintf(stdout, "mask: %s\n", ip);
-    if ( proxy_tbl[i].atype == S5ATFQDN ) {
-      fprintf(stdout, "len: %d\n", proxy_tbl[i].len);
-      fprintf(stdout, "domain: %s\n", proxy_tbl[i].domain);
-    }
+    fprintf(stdout, "atype: %d\n", proxy_tbl[i].dest.atype);
+
+    resolv_host(&proxy_tbl[i].dest, host, sizeof(host));
+    fprintf(stdout, "dest: %s\n", host);
+
+    fprintf(stdout, "mask: %d\n", proxy_tbl[i].mask);
     fprintf(stdout, "port_l: %u\n", proxy_tbl[i].port_l);
     fprintf(stdout, "port_h: %u\n", proxy_tbl[i].port_h);
-    inet_ntop(AF_INET, &(proxy_tbl[i].proxy), ip, sizeof ip);
-    ip[(sizeof ip) - 1] = '\0'; 
-    fprintf(stdout, "proxy: %s\n", ip);
+
+    resolv_host(&proxy_tbl[i].proxy, host, sizeof(host));
+    fprintf(stdout, "proxy: %s\n", host);
     fprintf(stdout, "port: %u\n", proxy_tbl[i].port);
   }
 }
 
+#if 0
 void checkpwd(char *user)
 {
   FILE *fp;
@@ -448,29 +582,26 @@ void checkpwd(char *user)
   }
 
 }
+#endif
 
 int main(int argc, char **argv) {
 
-  /*
   FILE *fp;
-  if ( (fp = fopen(CONFIG, "r")) == NULL ) {
-    return(1);
-  }
-  */
 
   if (argc < 2) {
     fprintf(stderr, "need args\n");
     return(1);
   }
 
-  checkpwd(argv[1]);
-
-  /*
+  if ( (fp = fopen(argv[1], "r")) == NULL ) {
+    fprintf(stderr, "can't open %s\n", argv[1]);
+    return(1);
+  }
   readconf(fp);
   fclose(fp);
 
   dump_entry();
   return(0);
-  */
+
 }
 #endif
