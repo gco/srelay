@@ -2,6 +2,11 @@
 #  Changes
 #  $Id$
 #
+0.4.5a (2003/03/31)
+  + Bug Fix ... address masks, address compare, etc.
+  + TODO:
+	IPv6 site-local address consideration(scope id).
+
 0.4.5 (2003/03/27) - alpha to beta quality
   + Almost all rewritten to support IPv6
   + TODO:

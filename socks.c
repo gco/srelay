@@ -174,12 +174,12 @@ int addr_comp(struct bin_addr *dest, int ind)
   /* if dest entry is wildcard, every thing is matched */
   switch (dest->atype) {
   case S5ATIPV4:
-    if (memcmp(&(proxy_tbl[ind].dest.v4_addr),
+    if (memcmp(proxy_tbl[ind].dest.v4_addr,
 	       &inaddr_any, sizeof inaddr_any) == 0)
       return 0;
     break;
   case S5ATIPV6:
-    if (memcmp(&(proxy_tbl[ind].dest.v6_addr),
+    if (memcmp(proxy_tbl[ind].dest.v6_addr,
 	       &in6addr_any, sizeof in6addr_any) == 0)
       return 0;
     break;
@@ -190,12 +190,12 @@ int addr_comp(struct bin_addr *dest, int ind)
   if (proxy_tbl[ind].mask == 0) {  /* no need to process mask */
     switch (dest->atype) {
     case S5ATIPV4:
-      if (memcmp(&proxy_tbl[ind].dest.v4_addr,
+      if (memcmp(proxy_tbl[ind].dest.v4_addr,
 		 dest->v4_addr, sizeof(dest->v4_addr)) == 0)
 	return 0;
       break;
     case S5ATIPV6:
-      if (memcmp(&proxy_tbl[ind].dest.v6_addr,
+      if (memcmp(proxy_tbl[ind].dest.v6_addr,
 		 dest->v6_addr, sizeof(dest->v6_addr)) == 0)
 	return 0;
       break;
@@ -210,15 +210,14 @@ int addr_comp(struct bin_addr *dest, int ind)
       if (proxy_tbl[ind].mask < 1 || proxy_tbl[ind].mask > 32) {
 	ret = -1;
       } else {
-	u_short mask;
-	struct sockaddr_in *sin1, *sin2;
+	u_long mask;
+	struct in_addr sin1, sin2;
 	mask = ( 0xffffffff << (32-proxy_tbl[ind].mask) ) & 0xffffffff;
-	sin1 = (struct sockaddr_in *)&(dest->v4_addr);
-	sin2 = (struct sockaddr_in *)&(proxy_tbl[ind].dest.v4_addr);
-	sin1->sin_addr.s_addr &= mask;
-	sin2->sin_addr.s_addr &= mask;
-	ret = memcmp(&sin1->sin_addr,
-		     &sin2->sin_addr, sizeof(struct in_addr));
+	memcpy(&sin1, dest->v4_addr, sizeof(struct in_addr));
+	memcpy(&sin2, proxy_tbl[ind].dest.v4_addr, sizeof(struct in_addr));
+	sin1.s_addr &= htonl(mask);
+	sin2.s_addr &= htonl(mask);
+	ret = memcmp(&sin1, &sin2, sizeof(struct in_addr));
       }
       break;
       
@@ -228,18 +227,18 @@ int addr_comp(struct bin_addr *dest, int ind)
       } else {
 	u_short  f, r, smask;
 	int      i;
-	struct sockaddr_in6 *sin1, *sin2;
+	struct in6_addr sin1, sin2;
 	
 	f = proxy_tbl[ind].mask / 8;
 	r = proxy_tbl[ind].mask % 8;
 	if ( f > 16 ) { /* ??? why ??? */
 	  f = 16; r = 0;
 	}
-	sin1 = (struct sockaddr_in6 *)&(dest->v6_addr);
-	sin2 = (struct sockaddr_in6 *)&(proxy_tbl[ind].dest.v6_addr);
+	memcpy(&sin1, dest->v6_addr, sizeof(struct in6_addr));
+	memcpy(&sin2, proxy_tbl[ind].dest.v6_addr, sizeof(struct in6_addr));
 	ret = 0;
 	for (i=0; i<f; i++) {
-	  if (sin1->sin6_addr.s6_addr[i] != sin2->sin6_addr.s6_addr[i]) {
+	  if (sin1.s6_addr[i] != sin2.s6_addr[i]) {
 	    ret = -1;
 	    break;
 	  }
@@ -247,10 +246,9 @@ int addr_comp(struct bin_addr *dest, int ind)
 	if (ret == 0) {
 	  if (f < 16 && r > 0) {
 	    smask = (0xff << (8-r)) & 0xff;
-	    sin1->sin6_addr.s6_addr[f] &= smask;
-	    sin2->sin6_addr.s6_addr[f] &= smask;
-	    ret = memcmp(&(sin1->sin6_addr),
-			 &(sin2->sin6_addr), sizeof(struct in6_addr));
+	    sin1.s6_addr[f] &= smask;
+	    sin2.s6_addr[f] &= smask;
+	    ret = memcmp(&sin1, &sin2, sizeof(struct in6_addr));
 	  }
 	}
       }
@@ -329,13 +327,13 @@ int lookup_tbl(struct socks_req *req)
 	  case AF_INET:
 	    addr.atype = S5ATIPV4;
 	    sa = (struct sockaddr_in *)res->ai_addr;
-	    memcpy(&addr.v4_addr,
+	    memcpy(addr.v4_addr,
 		   &sa->sin_addr, sizeof(struct in_addr));
 	    break;
 	  case AF_INET6:
 	    addr.atype = S5ATIPV6;
 	    sa6 = (struct sockaddr_in6 *)res->ai_addr;
-	    memcpy(&addr.v6_addr,
+	    memcpy(addr.v6_addr,
 		   &sa6->sin6_addr, sizeof(struct in6_addr));
 	    break;
 	  default:
@@ -348,8 +346,8 @@ int lookup_tbl(struct socks_req *req)
 	    match++;
 	  break;
 	}
-	if ( !match )
-	  continue;
+	if ( match )
+	  break;
       }
       freeaddrinfo(res0);
     }
@@ -378,7 +376,7 @@ int resolv_host(struct bin_addr *addr, u_short port, struct host_info *info)
     sa->sin_len = len;
 #endif
     sa->sin_family = AF_INET;
-    memcpy(&(sa->sin_addr), &(addr->v4_addr), sizeof(struct in_addr));
+    memcpy(&(sa->sin_addr), addr->v4_addr, sizeof(struct in_addr));
     sa->sin_port = htons(port);
     break;
   case S5ATIPV6:
@@ -388,7 +386,7 @@ int resolv_host(struct bin_addr *addr, u_short port, struct host_info *info)
     sa6->sin6_len = len;
 #endif
     sa6->sin6_family = AF_INET6;
-    memcpy(&(sa6->sin6_addr), &(addr->v6_addr), sizeof(struct in6_addr));
+    memcpy(&(sa6->sin6_addr), addr->v6_addr, sizeof(struct in6_addr));
     sa6->sin6_port = htons(port);
     break;
   case S5ATFQDN:
@@ -717,7 +715,7 @@ int proto_socks4(int s)
   req.port = buf[2] * 0x100 + buf[3];
 
   if (req.dest.atype == S4ATIPV4) {
-    memcpy(&(req.dest.v4_addr), &buf[4], 4);
+    memcpy(req.dest.v4_addr, &buf[4], 4);
   }
   
   /* read client user name in request */
@@ -757,7 +755,7 @@ int proto_socks4(int s)
     if ( r > 0 && r <= 256 ) {   /* r should be 1 <= r <= 256 */
       len = r - 1;
       req.dest.len_fqdn = len;
-      memcpy(&(req.dest.fqdn), buf, len);
+      memcpy(req.dest.fqdn, buf, len);
       req.dest.fqdn[len] = '\0';
     } else {
       /* read error or something */
@@ -809,7 +807,7 @@ int proto_socks5(int s)
       GEN_ERR_REP(s, 5);
       return(-1);
     }
-    memcpy(&(req.dest.v4_addr), &buf[4], sizeof(struct in_addr));
+    memcpy(req.dest.v4_addr, &buf[4], sizeof(struct in_addr));
     req.port = buf[8] * 0x100 + buf[9];
     break;
 
@@ -819,7 +817,7 @@ int proto_socks5(int s)
       GEN_ERR_REP(s, 5);
       return(-1);
     }
-    memcpy(&(req.dest.v6_addr), &buf[4], sizeof(struct in6_addr));
+    memcpy(req.dest.v6_addr, &buf[4], sizeof(struct in6_addr));
     req.port = buf[20] * 0x100 + buf[21];
     break;
 
@@ -835,7 +833,7 @@ int proto_socks5(int s)
       GEN_ERR_REP(s, 5);
       return(-1);
     }
-    memcpy(&(req.dest.fqdn), &buf[5], len);
+    memcpy(req.dest.fqdn, &buf[5], len);
     req.dest.len_fqdn = len;
     req.port = buf[4+1+len] * 0x100 + buf[4+1+len+1];
     break;
@@ -1264,7 +1262,7 @@ int connect_to_socks(int ver, struct socks_req *req)
     buf[len++] = 0x00;
     switch (req->dest.atype) {
     case S4ATIPV4:
-      memcpy(&buf[4], &(req->dest.v4_addr), sizeof(struct in_addr));
+      memcpy(&buf[4], req->dest.v4_addr, sizeof(struct in_addr));
       break;
     case S4ATFQDN:
       buf[4] = buf[5] = buf[6] = 0; buf[7] = 1;
@@ -1272,7 +1270,7 @@ int connect_to_socks(int ver, struct socks_req *req)
       if (r <= 0 || r > 255) {
 	return(-1);
       }
-      memcpy(&buf[len++], &(req->dest.fqdn), r);
+      memcpy(&buf[len++], req->dest.fqdn, r);
       len += r;
       buf[len++] = 0x00;
       break;
@@ -1289,20 +1287,20 @@ int connect_to_socks(int ver, struct socks_req *req)
     buf[3] = req->dest.atype;
     switch (req->dest.atype) {
     case S5ATIPV4:
-      memcpy(&buf[4], &(req->dest.v4_addr), 4);
+      memcpy(&buf[4], req->dest.v4_addr, 4);
       buf[8] = (req->port / 256);
       buf[9] = (req->port % 256);
       len = 10;
       break;
     case S5ATIPV6:
-      memcpy(&buf[4], &(req->dest.v6_addr), 16);
+      memcpy(&buf[4], req->dest.v6_addr, 16);
       buf[20] = (req->port / 256);
       buf[21] = (req->port % 256);
       len = 22;
       break;
     case S5ATFQDN:
       buf[4] = req->dest.len_fqdn;
-      memcpy(&buf[5], &(req->dest.fqdn), len);
+      memcpy(&buf[5], req->dest.fqdn, len);
       buf[5+len]   = (req->port / 256);
       buf[5+len+1] = (req->port % 256);
       len = 5+len+2;
@@ -1317,7 +1315,7 @@ int connect_to_socks(int ver, struct socks_req *req)
 
   /* resolve addresses in request and log it */
   error = resolv_host(&req->dest, req->port, &info.dest);
-  error = resolv_host(&(proxy_tbl[req->tbl_ind].proxy),
+  error = resolv_host(&proxy_tbl[req->tbl_ind].proxy,
 			proxy_tbl[req->tbl_ind].port,
 			&info.proxy);
   error = log_request(ver, req, &info);

@@ -348,7 +348,7 @@ int dot_to_masklen(char *addr)
 
   struct addrinfo  hints, *res;
   int    i, error;
-  unsigned int xx;
+  unsigned long xx;
   struct sockaddr_in *sin;
 
   memset(&hints, 0, sizeof(hints));
@@ -365,7 +365,7 @@ int dot_to_masklen(char *addr)
   }
 
   sin = (struct sockaddr_in *)res->ai_addr;
-  xx = sin->sin_addr.s_addr & 0xffffffff;
+  xx = ntohl(sin->sin_addr.s_addr) & 0xffffffff;
   for (i=32; i>0; i--) {
     if ( xx & 1 )
       break;

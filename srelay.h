@@ -80,7 +80,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <unistd.h>
 
-#define version  "srelay 0.4.5 2003/03/27 (Tomo.M)"
+#define version  "srelay 0.4.5a 2003/03/31 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"
