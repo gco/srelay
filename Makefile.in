@@ -8,10 +8,11 @@ exec_prefix=@exec_prefix@
 srcdir	= @srcdir@
 sbindir	= @sbindir@
 libdir	= @libdir@
+sysconfdir = @sysconfdir@
 CC	= @CC@
 CFLAGS	= @CFLAGS@
 CPPFLAGS= @CPPFLAGS@
-DEFS	= @DEFS@
+DEFS	= @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)\"
 LDFLAGS	= @LDFLAGS@
 LIBS	= @LIBS@
 INCLUDES=

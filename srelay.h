@@ -69,8 +69,11 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #define version  "srelay 0.3 2002/06/14 (Tomo.M)"
 
-#define CONFIG    "/usr/local/etc/srelay.conf"
-#define PWDFILE   "/usr/local/etc/srelay.passwd"
+#ifndef SYSCONFDIR
+# define SYSCONFDIR "/usr/local/etc"
+#endif
+#define CONFIG    SYSCONFDIR "/srelay.conf"
+#define PWDFILE   SYSCONFDIR "/srelay.passwd"
 #define PIDFILE   "/var/run/srelay.pid"
 #define WORKDIR0  "/var/run"
 #define WORKDIR1  "/var/tmp"
