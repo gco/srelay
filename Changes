@@ -2,6 +2,9 @@
 #  Changes
 #  $Id$
 #
+0.4.6 (2003/04/13)
+  + bug fix
+
 0.4.5c (2003/04/10)
   + Enabling Solaris 2.6/8 compilations. but not tested well :-p
   + Add v6defs.h mainly for Solaris 2.6

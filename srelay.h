@@ -80,7 +80,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 typedef    u_int32_t    socklen_t;
 #endif
 
-#define version  "srelay 0.4.5c 2003/04/10 (Tomo.M)"
+#define version  "srelay 0.4.6 2003/04/13 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"
@@ -181,36 +181,40 @@ enum { norm=0, warn, crit };
 #define S5ANOTACC     0xff
 
 struct bin_addr {            /* binary format of SOCKS address */
-  unsigned char  atype;
+  u_int8_t      atype;
   union {
-    unsigned char  ip4[4];   /* NBO */
-    unsigned char  ip6[16];  /* NBO */
+    u_int8_t    ip4[4];   /* NBO */
     struct {
-      unsigned char  _nlen;
-      unsigned char  _name[255];
+      u_int8_t  ip6[16];  /* NBO */
+      u_int32_t scope;
+    } _ip6;
+    struct {
+      u_int8_t  _nlen;
+      u_int8_t  _name[255];
     } _fqdn;
-  } addr;
-#define v4_addr   addr.ip4
-#define v6_addr   addr.ip6
-#define len_fqdn  addr._fqdn._nlen
-#define fqdn      addr._fqdn._name
+  } _addr;
+#define v4_addr   _addr.ip4
+#define v6_addr   _addr._ip6.ip6
+#define v6_scope  _addr._ip6.scope
+#define len_fqdn  _addr._fqdn._nlen
+#define fqdn      _addr._fqdn._name
 };
 
 struct rtbl {
   struct bin_addr dest;       /* destination address */
   int             mask;       /* destination address mask len */
-  u_short         port_l;     /* port range low  (HBO) */
-  u_short         port_h;     /* port range high (HBO)*/
+  u_int16_t       port_l;     /* port range low  (HBO) */
+  u_int16_t       port_h;     /* port range high (HBO)*/
   struct bin_addr proxy;      /* proxy socks address */
-  u_short         port;       /* proxy socks port (HBO) */
+  u_int16_t       port;       /* proxy socks port (HBO) */
 };
 
 struct socks_req {
   int      s;                 /* client socket */
   int      req;               /* request CONN/BIND */
   struct bin_addr dest;       /* destination address */
-  u_short  port;              /* destination port (host byte order) */
-  unsigned char u_len;        /* user name length (socks v4) */
+  u_int16_t port;             /* destination port (host byte order) */
+  u_int8_t  u_len;            /* user name length (socks v4) */
   char     user[255];         /* user name (socks v4) */ 
   int      tbl_ind;           /* proxy table indicator */
 };

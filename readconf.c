@@ -124,7 +124,7 @@ int readconf(FILE *fp)
       }
     }
 
-    /* copy dest to tmp.dest */
+    /* set destination to tmp.dest */
     if (str_to_addr(tok, &tmp.dest) != 0) {
       parse_err(warn, n, "parse_addr error.");
       continue;
@@ -304,7 +304,7 @@ int str_to_addr(char *addr, struct bin_addr *dest)
 	if (res->ai_family != AF_INET)
 	  continue;
 	sa = (struct sockaddr_in *)res->ai_addr;
-	memcpy(dest->v4_addr, &(sa->sin_addr), sizeof(struct sockaddr_in));
+	memcpy(dest->v4_addr, &sa->sin_addr, sizeof(struct in_addr));
 	done = 1;
 	break;
       }
@@ -326,7 +326,8 @@ int str_to_addr(char *addr, struct bin_addr *dest)
 	if (res->ai_family != AF_INET6)
 	  continue;
 	sa6 = (struct sockaddr_in6 *)res->ai_addr;
-	memcpy(dest->v6_addr, &(sa6->sin6_addr), sizeof(struct sockaddr_in6));
+	memcpy(dest->v6_addr, &sa6->sin6_addr, sizeof(struct in6_addr));
+	dest->v6_scope = sa6->sin6_scope_id;
 	done = 1;
 	break;
       }
@@ -348,7 +349,7 @@ int dot_to_masklen(char *addr)
 
   struct addrinfo  hints, *res;
   int    i, error;
-  unsigned long xx;
+  u_int32_t xx;
   struct sockaddr_in *sin;
 
   memset(&hints, 0, sizeof(hints));

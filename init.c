@@ -96,7 +96,9 @@ int serv_init(char *ifs)
       *p++ = '\0';
   }
   if ( p == NULL || *p == '\0' ) {
-    p = "1080";   /* set socks default port */
+    /* set socks default port */
+    snprintf(sbuf, sizeof(sbuf), "%d", SOCKS_PORT);
+    p = sbuf;
   }
 
   memset(&hints, 0, sizeof(hints));
@@ -118,6 +120,12 @@ int serv_init(char *ifs)
       return(-1);
     }
     strncpy(tmp_str_serv_sock, hbuf, sizeof(hbuf));
+    /* replace ':' char to '_' for using str in hosts_access */
+    for ( i = 0; i < sizeof(hbuf); i++ ) {
+      if (hbuf[i] == ':') {
+	hbuf[i] = '_';
+      }
+    }
     strncat(tmp_str_serv_sock, "_", strlen("_"));
     strncat(tmp_str_serv_sock, sbuf, sizeof(sbuf));
     for ( i = 0, dup = 0; i < serv_sock_ind; i++ ) {

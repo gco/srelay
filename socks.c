@@ -97,10 +97,11 @@ struct req_host_info {
 };
 
 /* prototypes */
+int addr_comp __P((struct bin_addr *, struct bin_addr *, int));
 int lookup_tbl __P((struct socks_req *));
-int resolv_host __P((struct bin_addr *, u_short, struct host_info *));
+int resolv_host __P((struct bin_addr *, u_int16_t, struct host_info *));
 int log_request __P((int, struct socks_req *, struct req_host_info *));
-int do_bind __P((int, struct addrinfo *, u_short));
+int do_bind __P((int, struct addrinfo *, u_int16_t));
 int socks_rep __P((int , int , int , struct sockaddr *));
 int socks_direct_conn __P((int, struct socks_req *));
 int proto_socks4 __P((int));
@@ -160,82 +161,98 @@ ssize_t timerd_write(int s, char *buf, size_t len, int sec)
   return(r);
 }
 
-int addr_comp(struct bin_addr *dest, int ind)
+int addr_comp(struct bin_addr *a1, struct bin_addr *a2, int mask)
 {
-  int    ret;
+  int    ret = -1;
   struct in6_addr in6addr_any = IN6ADDR_ANY_INIT;
   struct in_addr  inaddr_any;
 
   inaddr_any.s_addr = INADDR_ANY;
 
-  if (dest->atype != proxy_tbl[ind].dest.atype)
+  if (a1->atype != a2->atype)
     return -1;             /* address type mismatched */
 
-  /* if dest entry is wildcard, every thing is matched */
-  switch (dest->atype) {
+  /* if a2 entry is wildcard, every thing is matched */
+  switch (a1->atype) {
   case S5ATIPV4:
-    if (memcmp(proxy_tbl[ind].dest.v4_addr,
+    if (memcmp(a2->v4_addr,
 	       &inaddr_any, sizeof inaddr_any) == 0)
       return 0;
     break;
   case S5ATIPV6:
-    if (memcmp(proxy_tbl[ind].dest.v6_addr,
+    if (memcmp(a2->v6_addr,
 	       &in6addr_any, sizeof in6addr_any) == 0)
+      return 0;
+    break;
+  case S5ATFQDN:
+    if (strncmp(a2->fqdn, "*", sizeof("*")) == 0)
       return 0;
     break;
   default:
     break;
   }
     
-  if (proxy_tbl[ind].mask == 0) {  /* no need to process mask */
-    switch (dest->atype) {
+  if (mask == 0) {  /* no need to process mask */
+    switch (a1->atype) {
     case S5ATIPV4:
-      if (memcmp(proxy_tbl[ind].dest.v4_addr,
-		 dest->v4_addr, sizeof(dest->v4_addr)) == 0)
+      if (memcmp(a2->v4_addr, a1->v4_addr, sizeof(struct in_addr)) == 0)
 	return 0;
       break;
     case S5ATIPV6:
-      if (memcmp(proxy_tbl[ind].dest.v6_addr,
-		 dest->v6_addr, sizeof(dest->v6_addr)) == 0)
+      if (memcmp(a2->v6_addr, a1->v6_addr, sizeof(struct in6_addr)) == 0)
+	if (a2->v6_scope == a1->v6_scope)
+	  return 0;
+      break;
+    case S5ATFQDN:
+      if ( a1->len_fqdn < a2->len_fqdn )
+	break;
+      if (strncasecmp(a2->fqdn,
+		      &(a1->fqdn[a1->len_fqdn - a2->len_fqdn]),
+		      a2->len_fqdn) == 0)
 	return 0;
       break;
     default:
       break;
     }
+    return -1;
   } else {
     /* process address mask */
-    switch (dest->atype) {
+    switch (a1->atype) {
     case S5ATIPV4:
       /* sanity check */
-      if (proxy_tbl[ind].mask < 1 || proxy_tbl[ind].mask > 32) {
+      if (mask < 1 || mask > 32) {
 	ret = -1;
       } else {
-	u_long mask;
+	u_int32_t smask;
 	struct in_addr sin1, sin2;
-	mask = ( 0xffffffff << (32-proxy_tbl[ind].mask) ) & 0xffffffff;
-	memcpy(&sin1, dest->v4_addr, sizeof(struct in_addr));
-	memcpy(&sin2, proxy_tbl[ind].dest.v4_addr, sizeof(struct in_addr));
-	sin1.s_addr &= htonl(mask);
-	sin2.s_addr &= htonl(mask);
+	smask = ( 0xffffffff << (32-mask) ) & 0xffffffff;
+	memcpy(&sin1, a1->v4_addr, sizeof(struct in_addr));
+	memcpy(&sin2, a2->v4_addr, sizeof(struct in_addr));
+	sin1.s_addr &= htonl(smask);
+	sin2.s_addr &= htonl(smask);
 	ret = memcmp(&sin1, &sin2, sizeof(struct in_addr));
       }
       break;
       
     case S5ATIPV6:
-      if (proxy_tbl[ind].mask < 1 || proxy_tbl[ind].mask > 128) {
+      if (a2->v6_scope != a1->v6_scope) {
+	ret = -1;
+	break;
+      }
+      if (mask < 1 || mask > 128) {
 	ret = -1;
       } else {
-	u_short  f, r, smask;
+	u_int16_t  f, r, smask;
 	int      i;
 	struct in6_addr sin1, sin2;
 	
-	f = proxy_tbl[ind].mask / 8;
-	r = proxy_tbl[ind].mask % 8;
+	f = mask / 8;
+	r = mask % 8;
 	if ( f > 16 ) { /* ??? why ??? */
 	  f = 16; r = 0;
 	}
-	memcpy(&sin1, dest->v6_addr, sizeof(struct in6_addr));
-	memcpy(&sin2, proxy_tbl[ind].dest.v6_addr, sizeof(struct in6_addr));
+	memcpy(&sin1, a1->v6_addr, sizeof(struct in6_addr));
+	memcpy(&sin2, a2->v6_addr, sizeof(struct in6_addr));
 	ret = 0;
 	for (i=0; i<f; i++) {
 	  if (sin1.s6_addr[i] != sin2.s6_addr[i]) {
@@ -266,7 +283,6 @@ int addr_comp(struct bin_addr *dest, int ind)
 int lookup_tbl(struct socks_req *req)
 {
   int    i, match, error;
-  int    len, slen;
   struct addrinfo hints, *res, *res0;
   char   name[NI_MAXHOST];
   struct bin_addr addr;
@@ -283,26 +299,11 @@ int lookup_tbl(struct socks_req *req)
 	 || req->port > proxy_tbl[i].port_h)
       continue;
 
-    switch (req->dest.atype) {
-    case S5ATIPV4:
-    case S5ATIPV6:
-      if (addr_comp(&(req->dest), i) == 0)
-	match++;
-      break;
-
-    case S5ATFQDN:
-      /* at first, try fqdn AS-IS */
-      len = req->dest.len_fqdn;
-      slen = proxy_tbl[i].dest.len_fqdn;
-      if ( len < slen )
-	break;
-      if (strncasecmp(proxy_tbl[i].dest.fqdn,
-		      &(req->dest.fqdn[len - slen]), slen) == 0)
-	match++;
+    if (addr_comp(&(req->dest), &(proxy_tbl[i].dest),
+		  proxy_tbl[i].mask) == 0) {
+      match++;
       break;
     }
-    if ( match )
-      break;
   }
 
   if ( !match && req->dest.atype == S5ATFQDN ) {
@@ -335,6 +336,7 @@ int lookup_tbl(struct socks_req *req)
 	    sa6 = (struct sockaddr_in6 *)res->ai_addr;
 	    memcpy(addr.v6_addr,
 		   &sa6->sin6_addr, sizeof(struct in6_addr));
+	    addr.v6_scope = sa6->sin6_scope_id;
 	    break;
 	  default:
 	    addr.atype = -1;
@@ -342,7 +344,8 @@ int lookup_tbl(struct socks_req *req)
 	  }
 	  if ( addr.atype != proxy_tbl[i].dest.atype )
 	    continue;
-	  if (addr_comp(&addr, i) == 0)
+	  if (addr_comp(&addr, &(proxy_tbl[i].dest),
+			proxy_tbl[i].mask) == 0)
 	    match++;
 	  break;
 	}
@@ -358,7 +361,7 @@ int lookup_tbl(struct socks_req *req)
     return(proxy_tbl_ind);
 }
 
-int resolv_host(struct bin_addr *addr, u_short port, struct host_info *info)
+int resolv_host(struct bin_addr *addr, u_int16_t port, struct host_info *info)
 {
   struct  sockaddr_storage ss;
   struct  sockaddr_in  *sa;
@@ -387,6 +390,7 @@ int resolv_host(struct bin_addr *addr, u_short port, struct host_info *info)
 #endif
     sa6->sin6_family = AF_INET6;
     memcpy(&(sa6->sin6_addr), addr->v6_addr, sizeof(struct in6_addr));
+    sa6->sin6_scope_id = addr->v6_scope;
     sa6->sin6_port = htons(port);
     break;
   case S5ATFQDN:
@@ -435,12 +439,13 @@ int log_request(int v, struct socks_req *req, struct req_host_info *info)
   int     atmap[] = {3, 0, 3, 1, 2};
   int     reqmap[] = {3, 0, 1, 2};
   int     len;
-  int     dp = 0;
+  int     direct = 0;
 
   len = sizeof(ss);
   if (getpeername(req->s, (struct sockaddr *)&ss, &len) != 0) {
     strncpy(client.host, "?", sizeof(client.host));
     strncpy(client.port, "?", sizeof(client.port));
+    error++;
   } else {
     error += getnameinfo((struct sockaddr *)&ss, len,
 			client.host, sizeof(client.host),
@@ -451,8 +456,9 @@ int log_request(int v, struct socks_req *req, struct req_host_info *info)
   strncpy(user, req->user, req->u_len);
   user[req->u_len] = '\0';
 
-  if (proxy_tbl[req->tbl_ind].port != 0) {
-    dp = 1;
+  if (req->tbl_ind == proxy_tbl_ind ||
+      proxy_tbl[req->tbl_ind].port == 0) {
+    direct = 1;
   }
 
   msg_out(norm, "%s:%s %d-%s %s:%s(%s) %s %s%s:%s.",
@@ -461,7 +467,7 @@ int log_request(int v, struct socks_req *req, struct req_host_info *info)
 	        info->dest.host, info->dest.port,
 		ats[atmap[req->dest.atype]],
 	        user,
-		dp == 0 ? "direct" : "relay=",
+		direct ? "direct" : "relay=",
 	        info->proxy.host, info->proxy.port );
   return(error);
 }
@@ -477,7 +483,7 @@ int bind_sock(int s, struct socks_req *req, struct addrinfo *ai)
   struct sockaddr_storage ss;
   struct sockaddr_in  *sa;
   struct sockaddr_in6 *sa6;
-  u_short    port;
+  u_int16_t  port;
   size_t     len;
 
   /* try requested port */
@@ -510,9 +516,9 @@ int bind_sock(int s, struct socks_req *req, struct addrinfo *ai)
   return(do_bind(s, ai, 0));
 }
 
-int do_bind(int s, struct addrinfo *ai, u_short p)
+int do_bind(int s, struct addrinfo *ai, u_int16_t p)
 {
-  u_short   port = p;  /* Host Byte Order */
+  u_int16_t port = p;  /* Host Byte Order */
   int       r;
   struct sockaddr_in  *sa;
   struct sockaddr_in6 *sa6;
@@ -1000,7 +1006,7 @@ int socks_direct_conn(int ver, struct socks_req *req)
   strcpy(info.proxy.port, "-");
   /* resolve addresses in request and log it */
   error = resolv_host(&req->dest, req->port, &info.dest);
-  error = log_request(ver, req, &info);
+  error += log_request(ver, req, &info);
 
   if (error) {   /* error in name resolve */
     GEN_ERR_REP(req->s, ver);
@@ -1129,6 +1135,10 @@ int socks_direct_conn(int ver, struct socks_req *req)
     close(acs); /* accept socket is not needed
 		   any more, for current socks spec. */
     /* sock name is in ss */
+    /* TODO:
+     *  we must check ss against req->dest here for security reason
+     */
+    /* XXXXX */
     break;
 
   default:
