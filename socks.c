@@ -537,11 +537,13 @@ int do_bind(int s, struct addrinfo *ai, u_short p)
   }
 
 #ifdef IPV6_V6ONLY
-  int    on = 1;
-  if (ai->ai_family == AF_INET6 &&
-      setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY,
-                     &on, sizeof(on)) < 0)
-    return -1;
+  {
+    int    on = 1;
+    if (ai->ai_family == AF_INET6 &&
+	setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY,
+		   &on, sizeof(on)) < 0)
+      return -1;
+  }
 #endif
 
   if (port > 0 && port < IPPORT_RESERVED)
