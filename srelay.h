@@ -56,12 +56,6 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sys/ioctl.h>
 #endif
 
-#ifdef SOLARIS
-# ifndef AF_INET6
-#  include <v6defs.h>
-# endif
-#endif
-
 #if HAVE_LIMITS_H
 # include <limits.h>
 #endif
@@ -76,8 +70,36 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <unistd.h>
 
+#ifndef HAVE_U_INT8_T
+# ifdef HAVE_UINT8_T
+typedef    uint8_t         u_int8_t;
+# else
+typedef    unsigned char   u_int8_t;
+# endif
+#endif
+#ifndef HAVE_U_INT16_T
+# ifdef HAVE_UINT16_T
+typedef    uint16_t        u_int16_t;
+# else
+typedef    unsigned short  u_int16_t;
+# endif
+#endif
+#ifndef HAVE_U_INT32_T
+# ifdef HAVE_UINT32_T
+typedef    uint32_t        u_int32_t;
+# else
+typedef    unsigned long   u_int32_t;
+# endif
+#endif
+
 #ifndef HAVE_SOCKLEN_T
 typedef    u_int32_t    socklen_t;
+#endif
+
+#ifdef SOLARIS
+# ifndef AF_INET6
+#  include <v6defs.h>
+# endif
 #endif
 
 #define version  "srelay 0.4.6 2003/04/13 (Tomo.M)"

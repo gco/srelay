@@ -171,10 +171,13 @@ AC_CHECK_HEADERS(fcntl.h sys/time.h limits.h syslog.h unistd.h\
 	sys/resource.h)
 
 dnl Checks for typedefs, structures, and compiler characteristics.
-AC_CHECK_TYPES(socklen_t,
-	[AC_DEFINE(HAVE_SOCKLEN_T)],,
+AC_CHECK_TYPES(socklen_t,,,
 	[#include <sys/types.h>
 #include <sys/socket.h>])
+
+AC_CHECK_TYPES([u_int8_t, u_int16_t, u_int32_t, uint8_t, uint16_t, uint32_t],,,
+	[#include <sys/types.h>
+#include <netdb.h>])
 
 AC_HEADER_TIME
 
@@ -221,3 +224,4 @@ AH_TEMPLATE([HAVE_SOCKADDR_DL_STRUCT],
 	[Define if you have the sockaddr_dl structure.])
 AH_TEMPLATE([HAVE_SOCKADDR_SA_LEN],
 	[Define if `sa_len' is member of `struct sockaddr'.])
+
