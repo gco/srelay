@@ -1,0 +1,65 @@
+The srelay Installation Tips.
+    $Id:
+
+o How to build and install
+
+    Unpack the source.
+
+	% gzip -dc srelay-X.Y.Z.tar.gz | tar xvf -
+	% cd srelay-X.Y.Z
+
+    Run configure.
+      To see configuration options,
+	% ./configure --help
+
+      Configuration options.
+	 --disable-thread               disable pthread feature.
+	srelay configures to use pthread by default. if you prefer not
+	to use pthread (to use forking server), disable it.
+
+	 --with-libbind[=PATH]          to use libbind.
+	If your system does not have IPv6 compatible name resolving API;
+	getaddrinfo, getnameinfo,...etc.(e.g. Solaris 2.6), you have to
+	prepare libbind library prior to configure srelay.
+	Please See LIBBIND INSTALL.
+
+	 --with-libwrap[=PATH|yes|no]   with tcp_wrapper access control.
+	If your system has libwrap, you can use the same access control
+	base.
+
+	 --with-syslog-fac=FACILITY     syslog facility (LOG_DAEMON).
+	Srelay logs through syslog. the default facility is LOG_DAEMON.
+
+    Make
+	If configure works without any errors, run make.
+
+	% make
+
+	( currently I have no 'install' target in Makefile. )
+
+o LIBBIND INSTALL
+
+    To install libbind, you have to get source code from outside this
+    package. ISC BIND 9.2.2 may be handy for it.
+    You may have installed BIND with its libraries, please check the
+    installation pathes of it.
+
+    If not, to get ISC BIND 9.2.2 source
+	ftp://ftp.isc.org/isc/bind9/9.2.2/bind-9.2.2.tar.gz
+
+    And, build.
+	% gzip -dc bind-9.2.2.tar.gz | tar xvf -
+	% cd bind-9.2.2/lib/bind
+	% ./configure
+	% make
+	% make DESTDIR=/path/to/temp install
+
+    check the includes and libbind.a are there in
+	/path/to/temp/usr/local/bind/inclue
+	/path/to/temp/usr/local/lib
+
+    Then, you may configure srelay.
+	% cd /path/of/srelay-X.Y.Z
+	% env LIBS="-L/path/to/temp/usr/local/lib" \
+	  ./configure --with-libbind=/path/to/temp/usr/local/bind
+	% make

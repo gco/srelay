@@ -57,12 +57,8 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 #ifdef SOLARIS
-#define BSD_COMP
-# ifdef HAVE_ARPA_NAMESER_H
-#  include <arpa/nameser.h>
-# endif
-# ifdef HAVE_RESOLV_H
-#  include <resolv.h>
+# ifndef AF_INET6
+#  include <v6defs.h>
 # endif
 #endif
 
@@ -80,7 +76,11 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <unistd.h>
 
-#define version  "srelay 0.4.5a 2003/03/31 (Tomo.M)"
+#ifndef HAVE_SOCKLEN_T
+typedef    u_int32_t    socklen_t;
+#endif
+
+#define version  "srelay 0.4.5c 2003/04/10 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"

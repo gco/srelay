@@ -68,10 +68,6 @@ static int get_ifconf(int, struct addrinfo *);
 #define RTAX_MAX        RTA_NUMBITS /* Number of bits used in RTA_* */
 #endif
 
-#ifndef HAVE_SOCKLEN_T
-typedef unsigned int socklen_t;
-#endif
-
 struct if_list {
   char if_name[IFNAMSIZ];
   struct in_addr if_addr;
