@@ -108,13 +108,36 @@ int settimer(int sec)
   }
 }
 
+void feed_sig(char c)
+{
+  if (write(sig_queue[1], &c, 1) != 1) {
+    msg_out(crit, "write: %m");
+    exit(-1);
+  }
+}
+
 /**  SIGALRM handling **/
 void timeout(int signo)
 {
   return;
 }
 
-void reapchild(int signo)
+void do_sigchld(int signo)
+{
+  feed_sig('C');
+}
+
+void do_sighup(int signo)
+{
+  feed_sig('H');
+}
+
+void do_sigterm(int signo)
+{
+  feed_sig('T');
+}
+
+void reapchild()
 {
   int olderrno = errno;
   pid_t pid;
@@ -122,20 +145,16 @@ void reapchild(int signo)
 
   count=0;
   while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+    proclist_drop(pid);
     if (count++ > 1000) {
       /* reapchild: waitpid loop */
       break;
     }
   }
-  if (cur_child > 0) {
-    cur_child--;
-  } else {
-    cur_child = 0;
-  }
   errno = olderrno;
 }
 
-void cleanup(int signo)
+void cleanup()
 {
   /* unlink PID file */
   if (pidfile != NULL) {
@@ -147,7 +166,7 @@ void cleanup(int signo)
   exit(0);
 }
 
-void reload(int signo)
+void reload()
 {
   FILE *fp;
 
@@ -228,3 +247,79 @@ int inet_pton(int af, char *src, void *dst)
   return(0);
 }
 #endif
+
+static pid_t    *proclist = NULL;
+static int      proclist_size = 0;
+#define PROCLIST_SEG      32
+
+void proclist_add(pid_t pid)
+{
+  int i;
+  void proclist_probe(void);
+
+  for (i = 0; i < proclist_size; i++) {
+    if (proclist[i] == (pid_t)0)
+      break;
+  }
+  if (i >= proclist_size) {
+    proclist_probe();
+    for (i = 0; i < proclist_size; i++) {
+      if (proclist[i] == 0)
+	break;
+    }
+  }
+  if (i >= proclist_size) {
+    pid_t *new_proclist;
+
+    new_proclist = (pid_t *)malloc(sizeof(pid_t)
+				   * (proclist_size + PROCLIST_SEG));
+    if (new_proclist == (pid_t *)NULL) {
+      msg_out(warn, "could not malloc proclist");
+      /* XXX */
+      return;
+    }
+    if (proclist_size > 0) {
+      memcpy(proclist, new_proclist, proclist_size * sizeof(pid_t));
+      free(proclist);
+    }
+    for (i = proclist_size; i < proclist_size + PROCLIST_SEG; i++) {
+      new_proclist[i] = 0;
+    }
+    i = proclist_size;
+    proclist_size += PROCLIST_SEG;
+    proclist = new_proclist;
+  }
+  proclist[i] = pid;
+  cur_child++;
+}
+
+void proclist_drop(pid_t pid)
+{
+  int i;
+
+  for (i = 0; i < proclist_size; i++) {
+    if (proclist[i] == pid) {
+      proclist[i] = 0;
+      break;
+    }
+  }
+  if (cur_child > 0)
+    cur_child--;
+}
+
+void proclist_probe()
+{
+  int i;
+
+  for (i = 0; i < proclist_size; i++) {
+    if (proclist[i] == 0)
+      continue;
+    if (kill(proclist[i], 0) < 0) {
+      /* lost child pid */
+      proclist[i] = 0;
+      cur_child--;
+    }
+  }
+  if (cur_child < 0)
+    cur_child = 0;
+}

@@ -96,6 +96,7 @@ int main(int ac, char **av)
   pid_t   pid;
   FILE    *fp;
   uid_t   uid;
+  char    *opt_i = NULL;
 #ifdef USE_THREAD
   pthread_attr_t attr;
   struct rlimit rl;
@@ -173,9 +174,7 @@ int main(int ac, char **av)
 
     case 'i':
       if (optarg != NULL) {
-	if (serv_init(optarg) < 0) {
-	  exit(1);
-	}
+	opt_i = strdup(optarg);
       }
       break;
 
@@ -272,6 +271,25 @@ int main(int ac, char **av)
       /* parent */
       exit(0);
     }
+  }
+
+#ifdef USE_THREAD
+  if ( ! threading ) {
+#endif
+    if (queue_init() != 0) {
+      msg_out(crit, "cannot init signal queue\n");
+      exit(1);
+    }
+#ifdef USE_THREAD
+  }
+#endif
+
+  if (opt_i != NULL) {
+    if (serv_init(opt_i) < 0) {
+      msg_out(crit, "cannot init server socket(-i)\n");
+      exit(1);
+    }
+    free(opt_i);
   }
 
   if (serv_sock_ind == 0) {   /* no valid ifs yet */

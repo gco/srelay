@@ -42,6 +42,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/time.h>
+#include <sys/filio.h>
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
@@ -68,7 +69,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # include <sys/resource.h>
 #endif
 
-#define version  "srelay 0.3.2 2002/12/06 (Tomo.M)"
+#define version  "srelay 0.3.3 2003/01/02 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"
@@ -241,6 +242,7 @@ extern int *serv_sock;
 extern int serv_sock_ind;
 extern int maxsock;
 extern fd_set allsock;
+extern int sig_queue[];
 
 /* from readconf.c */
 extern struct rtbl *proxy_tbl;
@@ -264,6 +266,7 @@ extern char *pwdfile;
 
 /* init.c */
 extern int serv_init __P((char *));
+extern int queue_init __P((void));
 
 /* main.c */
 
@@ -288,15 +291,20 @@ extern void msg_out __P((int, const char *, ...));
 extern void set_blocking __P((int));
 extern int settimer __P((int));
 extern void timeout __P((int));
-extern void reapchild __P((int));
-extern void cleanup __P((int));
-extern void reload __P((int));
+extern void do_sigchld __P((int));
+extern void do_sighup __P((int));
+extern void do_sigterm __P((int));
+extern void reapchild __P((void));
+extern void cleanup __P((void));
+extern void reload __P((void));
 extern sigfunc_t setsignal __P((int, sigfunc_t));
 extern int blocksignal __P((int));
 extern int releasesignal __P((int));
 #ifndef HAVE_INET_PTON
 extern int inet_pton __P((int, char *, void *));
 #endif
+extern void proclist_add __P((pid_t));
+extern void proclist_drop __P((pid_t));
 
 /* auth-pwd.c */
 int auth_pwd_server __P((int));

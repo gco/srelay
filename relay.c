@@ -155,11 +155,7 @@ void relay(int cs, int ss)
   struct sockaddr_in sa, ca, saa, caa;   /* using for logging */
   int len;
 
-  /* idle timeout related setting. */
-  tv.tv_sec = 60; tv.tv_usec = 0;   /* unit = 1 minute. */
-
   ri.nr = BUFSIZE;
-  tz.tz_minuteswest = 0; tz.tz_dsttime = 0;
 
   /* prepare sockaddr info for logging */
   /* get socket ss peer name */
@@ -182,11 +178,16 @@ void relay(int cs, int ss)
   gettimeofday(&ots, &tz);
   li.bc = li.upl = li.dnl = 0; ri.oob = 0; timeout_count = 0;
   for (;;) {
+    FD_ZERO(&rfds);
     FD_SET(cs, &rfds); FD_SET(ss, &rfds);
     if (ri.oob == 0) {
+      FD_ZERO(&xfds);
       FD_SET(cs, &xfds); FD_SET(ss, &xfds);
     }
     done = 0;
+    /* idle timeout related setting. */
+    tv.tv_sec = 60; tv.tv_usec = 0;   /* unit = 1 minute. */
+    tz.tz_minuteswest = 0; tz.tz_dsttime = 0;
     sfd = select(nfds+1, &rfds, 0, &xfds, &tv);
     if (sfd > 0) {
       if (FD_ISSET(ss, &rfds)) {
@@ -291,6 +292,40 @@ int serv_loop(void *id)
       continue;
     }
 
+#ifdef USE_THREAD
+    if ( ! threading ) {
+#endif
+      /* handle any queued signal flags */
+      if (FD_ISSET(sig_queue[0], &readable)) {
+        if (ioctl(sig_queue[0], FIONREAD, &i) != 0) {
+          msg_out(crit, "ioctl: %m");
+          exit(-1);
+        }
+        while (--i >= 0) {
+          char c;
+          if (read(sig_queue[0], &c, 1) != 1) {
+            msg_out(crit, "read: %m");
+            exit(-1);
+          }
+          switch(c) {
+          case 'H': /* sighup */
+            reload();
+            break;
+          case 'C': /* sigchld */
+            reapchild();
+            break;
+          case 'T': /* sigterm */
+            cleanup();
+            break;
+          default:
+            break;
+          }
+        }
+      }
+#ifdef USE_THREAD
+    }
+#endif
+
     for ( i = 0; i < serv_sock_ind; i++ ) {
       if (FD_ISSET(serv_sock[i], &readable)) {
 	n--;
@@ -392,7 +427,7 @@ int serv_loop(void *id)
 	relay(cs, ss);
 	exit(0);
       default: /* may be parent */
-	cur_child++;
+	proclist_add(pid);
 	break;
       }
       close(cs);

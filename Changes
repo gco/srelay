@@ -2,6 +2,20 @@
 #  Changes
 #  $Id$
 #
+0.3.3 (2003/01/02)
+relay.c
+  + Bugfix
+    Thread mode srelay consumes CPU nearly 100% on FreeBSD 4.7
+    and Solaris 8. rfds/xfds in relay() could be polluted by
+    something I could not make out.
+init.c
+main.c
+util.c
+relay.c
+srelay.h
+  + Added child process control
+    Child process control for Fork mode was full of imcompleteness.
+
 0.3.2 (2002/12/06)
   + Bugfix
     UDP associate request(which is not yet implemented;-) triggers

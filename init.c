@@ -44,6 +44,7 @@ int serv_sock_ind;
 
 fd_set allsock;
 int    maxsock;
+int    sig_queue[2];
 
 int sock_init(struct sockaddr_in *sa)
 {
@@ -224,6 +225,27 @@ int serv_init(char *ifs)
     }
   } else {
     /* malloc failed */
+    return(-1);
+  }
+
+#ifdef USE_THREAD
+  if ( ! threading ) {
+#endif
+    if (sig_queue[0] > 0) {
+      FD_SET(sig_queue[0], &allsock);
+      maxsock = MAX(sig_queue[0], maxsock);
+    } else {
+      return(-1);
+    }
+#ifdef USE_THREAD
+  }
+#endif
+  return(0);
+}
+
+int queue_init()
+{
+  if (pipe(sig_queue) != 0) {
     return(-1);
   }
   return(0);
