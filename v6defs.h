@@ -1,6 +1,6 @@
 /*
   v6defs.h:
-  $Id:
+  $Id$
          IPv6 related definisions mainly for old Solaris.
 
 Copyright (C) 2003 Tomo.M (author).
