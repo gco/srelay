@@ -88,7 +88,7 @@ if test "$libwrap" != "no"; then
    fi
    AC_CHECK_HEADER(tcpd.h, AC_DEFINE(HAVE_TCPD_H), tcpdh="no")
    if test "$tcpdh" != "no"; then
-      if test "$OS" = "LINUX"; then
+      if test "$OS" = "LINUX" -o "$OS" = "SOLARIS"; then
           AC_MSG_CHECKING([for hosts_ctl in -lwrap])
           saveLIBS="$LIBS"
 	  LIBS="-lwrap -lnsl $LIBS"
@@ -143,7 +143,7 @@ if test "$thread" != "no"; then
 	elif test "$OS" = "SOLARIS"; then
 	    LDFLAGS="$LDFLAGS -lpthread"
 	fi
-	AC_TRY_RUN(
+	AC_RUN_IFELSE([AC_LANG_SOURCE([
 [#include <pthread.h>
 void
 init_routine()
@@ -155,7 +155,7 @@ main()
     pthread_once_t once_control = PTHREAD_ONCE_INIT;
     pthread_once(&once_control, &init_routine);
     return(0);
-}],
+}]])],
 	AC_DEFINE(USE_THREAD) AC_MSG_RESULT([yes]),
 	CFLAGS="$save_CFLAGS"; LDFLAGS="$save_LDFLAGS"; AC_MSG_RESULT([no])
 	)

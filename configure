@@ -3276,7 +3276,7 @@ fi
 
 
    if test "$tcpdh" != "no"; then
-      if test "$OS" = "LINUX"; then
+      if test "$OS" = "LINUX" -o "$OS" = "SOLARIS"; then
           echo "$as_me:$LINENO: checking for hosts_ctl in -lwrap" >&5
 echo $ECHO_N "checking for hosts_ctl in -lwrap... $ECHO_C" >&6
           saveLIBS="$LIBS"
@@ -3596,6 +3596,7 @@ _ACEOF
 cat confdefs.h >>conftest.$ac_ext
 cat >>conftest.$ac_ext <<_ACEOF
 /* end confdefs.h.  */
+
 #include <pthread.h>
 void
 init_routine()

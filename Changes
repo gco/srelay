@@ -2,6 +2,10 @@
 #  Changes
 #  $Id$
 #
+0.4.6a (2003/04/22)
+  + bug fix - avoid compile error (may be) on Linux. (Thanks Michal.)
+  + adopt for more recent configure MACROs.
+
 0.4.6 (2003/04/13)
   + bug fix
 

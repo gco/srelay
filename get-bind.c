@@ -327,6 +327,12 @@ int get_bind_addr(struct socks_req *req, struct addrinfo *ba)
   struct sockaddr_in *sin;
   struct in_addr      ia;
 
+  struct addrinfo hints, *res, *res0;
+  int    error;
+  char   host[256];
+  int found = 0;
+  unsigned *d;
+
   /* IPv6 routing is not implemented yet */
   switch (req->dest.atype) {
   case S5ATIPV4:
@@ -335,32 +341,25 @@ int get_bind_addr(struct socks_req *req, struct addrinfo *ba)
   case S5ATIPV6:
     return -1;
   case S5ATFQDN:
-    {
-      struct addrinfo hints, *res, *res0;
-      int    error;
-      char   host[256];
-
-      memset(&hints, 0, sizeof(hints));
-      hints.ai_socktype = SOCK_STREAM;
-      hints.ai_family = AF_INET;
-      memcpy(host, &req->dest.fqdn, req->dest.len_fqdn);
-      host[req->dest.len_fqdn] = '\0';
-      error = getaddrinfo(host, NULL, &hints, &res0);
-      if (error) {
-	return -1;
-      }
-      int found = 0;
-      for (res = res0; res; res = res->ai_next) {
-	if (res->ai_family != AF_INET)
-	  continue;
-	sin = (struct sockaddr_in *)res->ai_addr;
-	memcpy(&ia, &(sin->sin_addr), sizeof(ia));
-	found++; break;
-      }
-      freeaddrinfo(res0);
-      if (!found)
-	return -1;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family = AF_INET;
+    memcpy(host, &req->dest.fqdn, req->dest.len_fqdn);
+    host[req->dest.len_fqdn] = '\0';
+    error = getaddrinfo(host, NULL, &hints, &res0);
+    if (error) {
+      return -1;
     }
+    for (res = res0; res; res = res->ai_next) {
+      if (res->ai_family != AF_INET)
+	continue;
+      sin = (struct sockaddr_in *)res->ai_addr;
+      memcpy(&ia, &(sin->sin_addr), sizeof(ia));
+      found++; break;
+    }
+    freeaddrinfo(res0);
+    if (!found)
+      return -1;
     break;
   default:
     return -1;
@@ -434,7 +433,7 @@ int get_bind_addr(struct socks_req *req, struct addrinfo *ba)
   }
   */
   if (tb[RTA_OIF]) {
-    unsigned *d = RTA_DATA(tb[RTA_OIF]);
+    d = RTA_DATA(tb[RTA_OIF]);
     return(get_ifconf(*d, ba));
   }
   return(-1);
@@ -464,6 +463,7 @@ int get_ifconf(int index, struct addrinfo *ba)
   struct nlmsghdr *h;
   struct ifaddrmsg *ifa;
   int status;
+  struct sockaddr_in *sin;
 
   memset(&nladdr, 0, sizeof(nladdr));
   nladdr.nl_family = AF_NETLINK;
@@ -509,7 +509,6 @@ int get_ifconf(int index, struct addrinfo *ba)
 	  inet_ntop(AF_INET, RTA_DATA(tb[IFA_ADDRESS]), str, sizeof(str));
 	  msg_out(norm, "ADDRESS %s\n", str);
 	*/
-	struct sockaddr_in *sin;
 	ba->ai_family = AF_INET;         /* IPv4 */
 	ba->ai_socktype = SOCK_STREAM;
 	ba->ai_protocol = IPPROTO_IP;

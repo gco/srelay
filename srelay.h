@@ -102,7 +102,7 @@ typedef    u_int32_t    socklen_t;
 # endif
 #endif
 
-#define version  "srelay 0.4.6 2003/04/13 (Tomo.M)"
+#define version  "srelay 0.4.6a 2003/04/22 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"
