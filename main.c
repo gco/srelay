@@ -41,6 +41,7 @@ void usage         __P((void));
 char *config = CONFIG;
 char *ident = "srelay";
 char *pidfile = PIDFILE;
+char *pwdfile = PWDFILE;
 pid_t master_pid;
 
 #if USE_THREAD
@@ -77,6 +78,7 @@ void usage()
 	  "\t-o min\tidle timeout minutes\n"
 	  "\t-p file\tpid file\n"
 	  "\t-a np\tauth methods n: no, p:pass\n"
+	  "\t-u file\tsrelay password file\n"
 	  "\t-f\trun into foreground\n"
 	  "\t-r\tresolve client name in log\n"
 	  "\t-s\tforce logging to syslog\n"
@@ -122,7 +124,7 @@ int main(int ac, char **av)
 
   uid = getuid();
 
-  while((ch = getopt(ac, av, "a:c:i:m:o:p:frstbvh?")) != -1)
+  while((ch = getopt(ac, av, "a:c:i:m:o:p:u:frstbvh?")) != -1)
     switch (ch) {
     case 'a':
       if (optarg != NULL) {
@@ -159,6 +161,12 @@ int main(int ac, char **av)
     case 'c':
       if (optarg != NULL) {
         config = strdup(optarg);
+      }
+      break;
+
+    case 'u':
+      if (optarg != NULL) {
+        pwdfile = strdup(optarg);
       }
       break;
 

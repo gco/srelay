@@ -41,8 +41,6 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #define TIMEOUTSEC    30
 
-char *pwdfile = PWDFILE;
-
 /* proto types */
 int checkpasswd(char *, char *);
 

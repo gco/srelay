@@ -224,6 +224,7 @@ typedef void            (*sigfunc_t)();
 extern char *config;
 extern char *ident;
 extern char *pidfile;
+extern char *pwdfile;
 extern int max_child;
 extern int cur_child;
 extern char method_tab[];
