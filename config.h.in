@@ -1,0 +1,96 @@
+/* config.h.in.  Generated automatically from configure.in by autoheader.  */
+/* Define if the build system is Solaris */
+#undef SOLARIS
+
+/* Define if you have the <limits.h> header file.  */
+#undef HAVE_LIMITS_H
+
+/* Define if you have the <tcpd.h> header file.  */
+#undef HAVE_TCPD_H
+
+/* Define if you indicate your favor syslog facility. */
+#undef SYSLOG_FAC
+
+/* Define if you indicate LOG_LOCALx syslog facility. */
+#undef LOCAL_FAC
+
+/* Define if you build a POSIX threading version. */
+#undef USE_THREAD
+
+/* Define if you have the sockaddr_dl structure. */
+#undef HAVE_SOCKADDR_DL_STRUCT
+
+/* Define if `sa_len' is member of `struct sockaddr'. */
+#undef HAVE_SOCKADDR_SA_LEN
+
+/* Define if you have the <arpa/nameser.h> header file. */
+#undef HAVE_ARPA_NAMESER_H
+
+/* Define if you have the <fcntl.h> header file. */
+#undef HAVE_FCNTL_H
+
+/* Define if you have the `gethostbyname_r' function. */
+#undef HAVE_GETHOSTBYNAME_R
+
+/* Define if you have the `inet_addr' function. */
+#undef HAVE_INET_ADDR
+
+/* Define if you have the `inet_ntop' function. */
+#undef HAVE_INET_NTOP
+
+/* Define if you have the `inet_pton' function. */
+#undef HAVE_INET_PTON
+
+/* Define if you have the `crypt' library (-lcrypt). */
+#undef HAVE_LIBCRYPT
+
+/* Define if you have the `nsl' library (-lnsl). */
+#undef HAVE_LIBNSL
+
+/* Define if you have the `resolv' library (-lresolv). */
+#undef HAVE_LIBRESOLV
+
+/* Define if you have the `wrap' library (-lwrap). */
+#undef HAVE_LIBWRAP
+
+/* Define if you have the `xnet' library (-lxnet). */
+#undef HAVE_LIBXNET
+
+/* Define if you have the <limits.h> header file. */
+#undef HAVE_LIMITS_H
+
+/* Define if you have the <resolv.h> header file. */
+#undef HAVE_RESOLV_H
+
+/* Define if you have the `select' function. */
+#undef HAVE_SELECT
+
+/* Define if you have the `socket' function. */
+#undef HAVE_SOCKET
+
+/* Define if the system has the type `socklen_t'. */
+#undef HAVE_SOCKLEN_T
+
+/* Define if you have the <syslog.h> header file. */
+#undef HAVE_SYSLOG_H
+
+/* Define if you have the <sys/resource.h> header file. */
+#undef HAVE_SYS_RESOURCE_H
+
+/* Define if you have the <sys/time.h> header file. */
+#undef HAVE_SYS_TIME_H
+
+/* Define if you have <sys/wait.h> that is POSIX.1 compatible. */
+#undef HAVE_SYS_WAIT_H
+
+/* Define if you have the <unistd.h> header file. */
+#undef HAVE_UNISTD_H
+
+/* Define as the return type of signal handlers (`int' or `void'). */
+#undef RETSIGTYPE
+
+/* Define if you have the ANSI C header files. */
+#undef STDC_HEADERS
+
+/* Define if you can safely include both <sys/time.h> and <time.h>. */
+#undef TIME_WITH_SYS_TIME
