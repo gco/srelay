@@ -1,7 +1,7 @@
 '\"
 .\" Copyright (c) 2001, Tomo.M
 .\" All Rights Reserved
-.TH srelay 8 "16 Oct 2001"
+.TH srelay 8 "16 Jun 2002"
 .if n .tr \--
 .SH NAME
 srelay \- socks protocol server.
@@ -44,6 +44,9 @@ Idle transfer timeout in minutes. 0(zero) means no timeout(default.)
 .TP
 .B \-p \fI file \fP
 PID file; stores main process or main thread process ID. 
+.TP
+.B \-u \fI file \fP
+srelay password file used in intermediate SOCKS5 server.
 .TP
 .B \-a \fP[n|p]
 authentication method.
@@ -102,7 +105,7 @@ The \fBsrelay\fP only supports 'No Authentication' and 'Username/Password Authen
 On the Username/Password authentication, the \fBsrelay\fP using the server host's account information. For instance, using UNIX host's password database. This is deprecated if you are in the network with full of sniffers :) Why ? er, plain text password is launched by the client every time at connecting the server.
 I recommend not to use \fB-a\fP\fIp\fP option.
 .P
-When the \fBsrelay\fP is working as the intermediate of socks servers chain, it is some time required to use socks authentication to connect to next-hop socks server. In this time, you can specify the username and password for the next-hop socks by using \fIsrelay.users\fP file.
+When the \fBsrelay\fP is working as the intermediate of socks servers chain, it is some time required to use socks authentication to connect to next-hop socks server. In this case, you can specify the username and password for the next-hop socks by using \fIsrelay.passwd\fP file.
 This is done whether you are specifing \fB-a\fP option or not.
 .SS srelay.conf
 .PP
@@ -129,8 +132,8 @@ Configuration file format.
 # no next-hop means connect direct.
 .br
 0.0.0.0				-
-.SS srelay.users
-Username/Password information for connect next-hop socks server.
+.SS srelay.passwd
+Username/Password information for connecting next-hop socks server.
 .br
 # this line is comment.
 .br
@@ -144,7 +147,7 @@ Username/Password information for connect next-hop socks server.
 .B /usr/local/etc/srelay.conf
 default configuration file.
 .TP
-.B /usr/local/etc/srelay.users
+.B /usr/local/etc/srelay.passwd
 username/password information using in connecting to the next-hop socks v5 server.
 .TP
 .B /var/run/srelay.pid
@@ -157,7 +160,7 @@ default PID file.
 The following signals are meaningful:
 .TP
 .B SIGHUP
-reload is not yet implemented :-p
+reload srelay.conf.
 .TP
 .B SIGTERM
 Exit.
@@ -169,6 +172,6 @@ Exit.
 .B RFC 1929 Username/Password Authentication for SOCKS V5,
 .br
 .B http://www.socks.nec.com/socksproto.html
-.SH AUTHER
+.SH AUTHOR
 .B Tomo.M
 <tomoyuki@pobox.com>
