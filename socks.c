@@ -573,7 +573,6 @@ int s4direct_conn(struct socks_req *sr)
   default:
     /* unsupported request */
     s4err_rep(sr->s, S4EGENERAL);
-    close(cs);
     return(-1);
   }
   buf[0] = 0;
@@ -852,7 +851,6 @@ int s5direct_conn(struct socks_req *sr)
   default:
     /* unsupported request */
     s5err_rep(sr->s, S5EUNSUPRT);
-    close(cs);
     return(-1);
   }
   buf[0] = 0x05;
