@@ -131,7 +131,7 @@ int main(int ac, char **av)
     case 'a':
       if (optarg != NULL) {
 	for (i=0; i<sizeof method_tab; optarg++) {
-	  if (*optarg == NULL)
+	  if (*optarg == '\0')
 	    break;
 	  switch (*optarg) {
 	  case 'p':

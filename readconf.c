@@ -184,12 +184,12 @@ int readconf(FILE *fp)
 	*q = '\0';
 	tmp.port_l = atoi(tok);
       }
-      if (*++q == NULL) {       /* special case 'port-low-' */
+      if (*++q == '\0') {       /* special case 'port-low-' */
 	tmp.port_h = PORT_MAX;
       } else {
 	tmp.port_h = atoi(q);
       }
-    } else if ((strncasecmp(tok, any, strlen(any))) == NULL) {
+    } else if ((strncasecmp(tok, any, strlen(any))) == 0) {
       tmp.port_l = PORT_MIN;
       tmp.port_h = PORT_MAX;
     } else {     /* may be single port */
@@ -324,7 +324,7 @@ int readpasswd(FILE *fp, int ind,
 #endif
 
   proxy.s_addr = proxy_tbl[ind].proxy.s_addr;
-  if (proxy.s_addr == NULL) {
+  if (proxy.s_addr == 0) {
     /* it must be no-proxy. how did you fetch up here ?
        any way, you shouldn't be hanging aroud.
     */
@@ -338,11 +338,19 @@ int readpasswd(FILE *fp, int ind,
     /* proxy host ip/name entry */
     tok = p; p = spell(p);
 #ifdef HAVE_GETHOSTBYNAME_R
+# ifdef SOLARIS
     if ((h = gethostbyname_r(tok, &he,
 		ghwork, sizeof ghwork, &gherrno)) == NULL) {
       /* name resolv failed */
       continue;
     }
+# elif LINUX
+    if (gethostbyname_r(tok, &he,
+		ghwork, sizeof ghwork, &h, &gherrno) != 0) {
+      /* name resolv failed */
+      continue;
+    }
+# endif
     r = memcmp(&proxy, h->h_addr_list[0], 4);
 #else
     MUTEX_LOCK(mutex_gh0);

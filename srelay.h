@@ -34,7 +34,6 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -42,13 +41,19 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/time.h>
-#include <sys/filio.h>
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
 
 #if HAVE_CONFIG_H
 #include <config.h>
+#endif
+
+#if defined(FREEBSD) || defined(SOLARIS)
+#include <sys/filio.h>
+#endif
+#if defined(LINUX)
+#include <sys/ioctl.h>
 #endif
 
 #ifdef SOLARIS
@@ -69,7 +74,13 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # include <sys/resource.h>
 #endif
 
-#define version  "srelay 0.3.3 2003/01/02 (Tomo.M)"
+#ifdef LINUX
+#define __USE_XOPEN
+#endif
+
+#include <unistd.h>
+
+#define version  "srelay 0.4.0 2003/01/06 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"

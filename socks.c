@@ -299,7 +299,7 @@ int proto_socks(int s)
 
   if (r > 0) {
     setsockopt(r, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof on);
-#ifdef __FreeBSD__
+#ifdef FREEBSD
     setsockopt(r, SOL_SOCKET, SO_REUSEPORT, (char *)&on, sizeof on);
 #endif
     setsockopt(r, IPPROTO_TCP, TCP_NODELAY, (char *)&on, sizeof on);
@@ -406,8 +406,13 @@ int proto_socks4(int s)
   if (sr.atype == S4ATFQDN && sr.tbl_ind == proxy_tbl_ind) {
     /* fqdn request but, not particular routing */
 #if HAVE_GETHOSTBYNAME_R
+# ifdef SOLARIS
     h = gethostbyname_r(hostname, &he,
 			ghwork, sizeof ghwork, &gherrno);
+# elif LINUX
+    gethostbyname_r(hostname, &he,
+		ghwork, sizeof ghwork, &h, &gherrno);
+# endif
 #else
     MUTEX_LOCK(mutex_gh0);
     h = gethostbyname(hostname);
@@ -427,8 +432,13 @@ int proto_socks4(int s)
       proxy_tbl[sr.tbl_ind].proxy.s_addr == 0) {
     if ( sr.atype == S4ATFQDN ) {
 #if HAVE_GETHOSTBYNAME_R
+# ifdef SOLARIS
       h = gethostbyname_r(hostname, &he,
 			ghwork, sizeof ghwork, &gherrno);
+# elif LINUX
+      gethostbyname_r(hostname, &he,
+		      ghwork, sizeof ghwork, &h, &gherrno);
+# endif
 #else
       MUTEX_LOCK(mutex_gh0);
       h = gethostbyname(hostname);
@@ -678,8 +688,13 @@ int proto_socks5(int s)
   if (sr.atype == S5ATFQDN && sr.tbl_ind == proxy_tbl_ind) {
     /* fqdn request but, not particular routing */
 #if HAVE_GETHOSTBYNAME_R
+# ifdef SOLARIS
     h = gethostbyname_r(hostname, &he,
 			ghwork, sizeof ghwork, &gherrno);
+# elif LINUX
+    gethostbyname_r(hostname, &he,
+		ghwork, sizeof ghwork, &h, &gherrno);
+# endif
 #else
     MUTEX_LOCK(mutex_gh0);
     h = gethostbyname(hostname);
@@ -699,8 +714,13 @@ int proto_socks5(int s)
       proxy_tbl[sr.tbl_ind].proxy.s_addr == 0) {
     if ( sr.atype == S5ATFQDN ) {
 #if HAVE_GETHOSTBYNAME_R
+# ifdef SOLARIS 
       h = gethostbyname_r(hostname, &he,
 			ghwork, sizeof ghwork, &gherrno);
+# elif LINUX
+    gethostbyname_r(hostname, &he,
+		ghwork, sizeof ghwork, &h, &gherrno);
+# endif
 #else
       MUTEX_LOCK(mutex_gh0);
       h = gethostbyname(hostname);
@@ -1281,8 +1301,13 @@ int proxy_reply(int v, int cs, int ss, int req)
 	memcpy(&rep[2], &buf[5+len], 2);
 	buf[5+len] = '\0';
 #if HAVE_GETHOSTBYNAME_R
+# ifdef SOLARIS
 	h = gethostbyname_r(&buf[5], &he,
 			ghwork, sizeof ghwork, &gherrno);
+# elif LINUX
+	gethostbyname_r(&buf[5], &he,
+			ghwork, sizeof ghwork, &h, &gherrno);
+# endif
 #else
 	MUTEX_LOCK(mutex_gh0);
 	h = gethostbyname(&buf[5]);

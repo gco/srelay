@@ -87,7 +87,7 @@ int serv_init(char *ifs)
   char str_ip[16], str_port[6];
 
 
-  if (ifs == NULL || *ifs == NULL) {
+  if (ifs == NULL || *ifs == '\0') {
     /* init table is initiated. */
     if (serv_sock != NULL) {
       free(serv_sock);
@@ -109,7 +109,7 @@ int serv_init(char *ifs)
   }
 
   for (p = q = ifs; q != NULL; p=q+1) {
-    if (p == NULL || *p == NULL)
+    if (p == NULL || *p == '\0')
       break;
 
     memset(&sa, 0, sizeof sa);
@@ -126,12 +126,12 @@ int serv_init(char *ifs)
       return(-1);
     }
     memcpy(hobj, p, len);
-    *(hobj+len) = NULL;
+    *(hobj+len) = '\0';
 
     r = strchr(hobj, '/');
     if (r != NULL) {         /* there may be port assignment */
-      *r++ = NULL;
-      if (*r != NULL) {
+      *r++ = '\0';
+      if (*r != '\0') {
 	port = atoi(r);
 	if ( port != 0 ) {
 	  sa.sin_port = htons(port);
@@ -146,7 +146,7 @@ int serv_init(char *ifs)
     } else {     /* no port asignment (defaults to SOCKS_PORT)*/
       sa.sin_port = htons(SOCKS_PORT);
     }
-    if (*hobj == NULL) {  /* special case; null host */
+    if (*hobj == '\0') {  /* special case; null host */
       sa.sin_addr.s_addr = INADDR_ANY;
     } else {
       if ((h = gethostbyname(hobj)) == NULL) {

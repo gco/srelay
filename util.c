@@ -92,7 +92,6 @@ void set_blocking(int s)
   }
 }
 
-#define ITIMER_REAL     0
 int settimer(int sec)
 {
   struct itimerval it, ot;

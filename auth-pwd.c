@@ -33,7 +33,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "srelay.h"
-#ifdef __FreeBSD__
+#if defined(FREEBSD) || defined(LINUX)
 #include <pwd.h>
 #elif  SOLARIS
 #include <shadow.h>
@@ -196,7 +196,7 @@ int auth_pwd_client(int s, int ind)
 
 int checkpasswd(char *user, char *pass)
 {
-#ifdef __FreeBSD__
+#if defined(FREEBSD) || defined(LINUX)
   struct passwd *pwd;
 #elif SOLARIS
   struct spwd *spwd, sp;
@@ -209,7 +209,7 @@ int checkpasswd(char *user, char *pass)
     return(-1);
   }
 
-#ifdef __FreeBSD__
+#if defined(FREEBSD) || defined(LINUX)
   seteuid(0);
   pwd = getpwnam(user);
   seteuid(PROCUID);
@@ -228,7 +228,7 @@ int checkpasswd(char *user, char *pass)
   }
   memset(pwd->pw_passwd, 0, strlen(pwd->pw_passwd));
 
-#elif  SOLARIS
+#elif SOLARIS
   seteuid(0);
   spwd = getspnam_r(user, &sp, buf, sizeof buf);
   seteuid(PROCUID);
@@ -248,7 +248,7 @@ int checkpasswd(char *user, char *pass)
   memset(spwd->sp_pwdp, 0, strlen(spwd->sp_pwdp));
 #endif
 
-#if defined(__FreeBSD__) || defined(SOLARIS)
+#if defined(FREEBSD) || defined(SOLARIS)
   if (matched) {
     return(0);
   } else {

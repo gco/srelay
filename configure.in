@@ -2,28 +2,30 @@ dnl Process this file with autoconf to produce a configure script.
 dnl $Id$
 AC_INIT(main.c)
 AC_CONFIG_HEADER(config.h)
-AC_CANONICAL_SYSTEM
+AC_CANONICAL_TARGET
 
 case "$build_os" in
   freebsd*)
 	OS=FREEBSD
+	AC_DEFINE(FREEBSD)
 	;;
   solaris*)
-##	LIBS="$LIBS -lsocket -lnsl -lresolv"
 	OS=SOLARIS
 	AC_DEFINE(SOLARIS)
 	;;
   linux*)
-	OS=LINUX
+	case "$build_cpu" in
+	  i*86)
+	    OS=LINUX
+	    AC_DEFINE(LINUX)
+	    ;;
+        esac
 	;;
 esac
 
 CFLAGS="$CFLAGS -O2 -Wall"
 LDFLAGS="$LDFLAGS -s"
 
-if test -d /usr/local/include; then
-    CPPFLAGS="-I/usr/local/include $CPPFLAGS"
-fi
 if test -d /usr/local/lib; then
     LIBS="-L/usr/local/lib $LIBS"
 fi
@@ -148,3 +150,25 @@ AC_CHECK_FUNCS(select\
 		gethostbyname_r)
 
 AC_OUTPUT(Makefile)
+
+dnl from acconfig.h
+AH_TEMPLATE([FREEBSD],
+	[Define if the build system is FreeBSD])
+AH_TEMPLATE([SOLARIS],
+	[Define if the build system is Solaris])
+AH_TEMPLATE([LINUX],
+	[Define if the build system is Linux])
+AH_TEMPLATE([HAVE_LIMITS_H],
+	[Define if you have the <limits.h> header file.])
+AH_TEMPLATE([HAVE_TCPD_H],
+	[Define if you have the <tcpd.h> header file.])
+AH_TEMPLATE([SYSLOG_FAC],
+	[Define if you indicate your favor syslog facility.])
+AH_TEMPLATE([LOCAL_FAC],
+	[Define if you indicate LOG_LOCALx syslog facility.])
+AH_TEMPLATE([USE_THREAD],
+	[Define if you build a POSIX threading version.])
+AH_TEMPLATE([HAVE_SOCKADDR_DL_STRUCT],
+	[Define if you have the sockaddr_dl structure.])
+AH_TEMPLATE([HAVE_SOCKADDR_SA_LEN],
+	[Define if `sa_len' is member of `struct sockaddr'.])

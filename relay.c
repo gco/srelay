@@ -76,7 +76,7 @@ void readn(rlyinfo *ri)
   if (ri->oob == 0) {
     ri->nread = read(ri->from, ri->buf, ri->nr);
   } else {
-    ri->nread = recvfrom(ri->from, ri->buf, ri->nr, MSG_OOB, NULL, NULL);
+    ri->nread = recvfrom(ri->from, ri->buf, ri->nr, MSG_OOB, NULL, 0);
   }
   if (ri->nread < 0) {
     msg_out(warn, "read: %m");
@@ -89,7 +89,7 @@ void writen(rlyinfo *ri)
   if (ri->oob == 0) {
     ri->nwritten = write(ri->to, ri->buf, ri->nw);
   } else {
-    ri->nwritten = sendto(ri->to, ri->buf, ri->nw, MSG_OOB, NULL, NULL);
+    ri->nwritten = sendto(ri->to, ri->buf, ri->nw, MSG_OOB, NULL, 0);
   }
   if (ri->nwritten <= 0) {
     msg_out(warn, "write: %m");
@@ -115,9 +115,9 @@ ssize_t forward(rlyinfo *ri)
 int validate_access(char *client_addr, char *client_name)
 {
   int stat = 0;
+#ifdef HAVE_LIBWRAP
   int i;
 
-#ifdef HAVE_LIBWRAP
   /* proc ident pattern */
   stat = hosts_ctl(ident, client_name, client_addr, STRING_UNKNOWN);
   /* IP.PORT pattern */
