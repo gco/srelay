@@ -46,7 +46,6 @@ char *pwdfile = PWDFILE;
 pid_t master_pid;
 
 #if USE_THREAD
-thread_tab *t_t;
 pthread_t main_thread;
 int max_thread;
 int threading;
@@ -98,6 +97,7 @@ int main(int ac, char **av)
   uid_t   uid;
   char    *opt_i = NULL;
 #ifdef USE_THREAD
+  pthread_t tid;
   pthread_attr_t attr;
   struct rlimit rl;
   rlim_t max_fd = (rlim_t)MAX_FD;
@@ -310,11 +310,31 @@ int main(int ac, char **av)
     msg_out(warn, "cannot open pidfile %s", pidfile);
   }
 
+  setsignal(SIGHUP, reload);
+  setsignal(SIGINT, SIG_IGN);
+  setsignal(SIGQUIT, SIG_IGN);
+  setsignal(SIGILL, SIG_IGN);
+  setsignal(SIGTRAP, SIG_IGN);
+  setsignal(SIGABRT, SIG_IGN);
+#ifndef LINUX
+  setsignal(SIGEMT, SIG_IGN);
+#endif
+  setsignal(SIGFPE, SIG_IGN);
+  setsignal(SIGBUS, SIG_IGN);
+  setsignal(SIGSEGV, SIG_IGN);
+  setsignal(SIGSYS, SIG_IGN);
   setsignal(SIGPIPE, SIG_IGN);
+  setsignal(SIGALRM, SIG_IGN);
+  setsignal(SIGTERM, cleanup);
   setsignal(SIGUSR1, SIG_IGN);
   setsignal(SIGUSR2, SIG_IGN);
-  setsignal(SIGINT, SIG_IGN);
-  setsignal(SIGTERM, cleanup);
+#ifndef FREEBSD
+  setsignal(SIGPOLL, SIG_IGN);
+#endif
+  setsignal(SIGVTALRM, SIG_IGN);
+  setsignal(SIGPROF, SIG_IGN);
+  setsignal(SIGXCPU, SIG_IGN);
+  setsignal(SIGXFSZ, SIG_IGN);
 
 #ifdef USE_THREAD
   if ( threading ) {
@@ -341,31 +361,23 @@ int main(int ac, char **av)
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
-    t_t = (thread_tab *)calloc(max_thread, sizeof(thread_tab));
-    if ( t_t == (thread_tab *)0 ) {
-      msg_out(crit, "calloc: %m");
-      exit(1);
-    }
-
     msg_out(norm, "Starting: MAX_TH(%d)", max_thread);
     for (i=0; i<max_thread; i++) {
-      if (pthread_create(&t_t[i].tid, &attr,
-			 (void *)&serv_loop, (void *)i) != 0)
+      if (pthread_create(&tid, &attr,
+			 (void *)&serv_loop, (void *)NULL) != 0)
         exit(1);
     }
     main_thread = pthread_self();   /* store main thread ID */
-    setsignal(SIGHUP, reload);
     for (;;) {
       pause();
     }
   } else {
 #endif
-    setsignal(SIGHUP, reload);
     setsignal(SIGCHLD, reapchild);
     setegid(PROCGID);
     seteuid(PROCUID);
     msg_out(norm, "Starting: MAX_CH(%d)", max_child);
-    serv_loop((void *)i);         /* i is dummy param */
+    serv_loop();
 #ifdef USE_THREAD
   }
 #endif

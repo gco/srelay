@@ -2,6 +2,11 @@
 #  Changes
 #  $Id$
 #
+0.4.0a (2003/01/16)
+  + remove unsed struct thread_tab.
+  + remove unsed argument of serv_loop().
+  + set signal behaviors more properly.
+
 0.4.0 (2003/01/06)
   + Ported to Linux (kernel 2.4.20/glibc-2.2.93-5 RedHat 8.0)
     ... this needs a lot more testing ...

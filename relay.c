@@ -255,7 +255,7 @@ pthread_mutex_t mutex_select;
 pthread_mutex_t mutex_gh0;
 #endif
 
-int serv_loop(void *id)
+int serv_loop()
 {
   int    cs, ss=0;
   struct sockaddr_in client;
@@ -277,11 +277,6 @@ int serv_loop(void *id)
   for (;;) {
     readable = allsock;
 
-#ifdef USE_THREAD
-    if (threading) {
-      t_t[(int)id].count++;
-    }
-#endif
     MUTEX_LOCK(mutex_select);
     n = select(maxsock+1, &readable, 0, 0, 0);
     if (n <= 0) {

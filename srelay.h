@@ -133,12 +133,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #ifdef USE_THREAD
 # include <pthread.h>
-typedef struct {
-  pthread_t     tid;
-  unsigned long count;
-} thread_tab;
 
-extern thread_tab *t_t;
 extern pthread_t main_thread;  /* holding the main thread ID */
 extern pthread_mutex_t mutex_select;
 extern pthread_mutex_t mutex_gh0;
@@ -286,7 +281,7 @@ extern int readconf __P((FILE *));
 extern int readpasswd __P((FILE *, int, char *, int, char *, int));
 
 /* relay.c */
-extern int serv_loop __P((void *));
+extern int serv_loop __P((void));
 
 /* socks.c */
 int wait_for_read __P((int, long));
