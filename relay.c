@@ -72,13 +72,11 @@ int log_transfer __P((loginfo *));
 void readn(rlyinfo *ri)
 {
   ri->nread = 0;
-  settimer(TIMEOUTSEC);
   if (ri->oob == 0) {
     ri->nread = read(ri->from, ri->buf, ri->nr);
   } else {
     ri->nread = recvfrom(ri->from, ri->buf, ri->nr, MSG_OOB, NULL, NULL);
   }
-  settimer(0);
   if (ri->nread < 0) {
     msg_out(warn, "read: %m");
   }
@@ -87,13 +85,11 @@ void readn(rlyinfo *ri)
 void writen(rlyinfo *ri)
 {
   ri->nwritten = 0;
-  settimer(TIMEOUTSEC);
   if (ri->oob == 0) {
     ri->nwritten = write(ri->to, ri->buf, ri->nw);
   } else {
     ri->nwritten = sendto(ri->to, ri->buf, ri->nw, MSG_OOB, NULL, NULL);
   }
-  settimer(0);
   if (ri->nwritten <= 0) {
     msg_out(warn, "write: %m");
   }
@@ -101,11 +97,13 @@ void writen(rlyinfo *ri)
 
 ssize_t forward(rlyinfo *ri)
 {
+  settimer(TIMEOUTSEC);
   readn(ri);
   if (ri->nread > 0) {
     ri->nw = ri->nread;
     writen(ri);
   }
+  settimer(0);
   if (ri->nread == 0)
     return(0);           /* EOF */
   if (ri->nread < 0)

@@ -67,7 +67,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # include <sys/resource.h>
 #endif
 
-#define version  "srelay 0.3 2002/06/14 (Tomo.M)"
+#define version  "srelay 0.3.1 2002/08/16 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"

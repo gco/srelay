@@ -239,7 +239,22 @@ int main(int ac, char **av)
     fclose(fp);
 
   if (!fg) {
-    fclose(stdin); fclose(stdout); fclose(stderr);
+    /* force stdin/out/err allocate to /dev/null */
+    fclose(stdin);
+    fp = fopen("/dev/null", "w+");
+    if (fileno(fp) != STDIN_FILENO) {
+      msg_out(crit, "fopen: %m");
+      exit(1);
+    }
+    if (dup2(STDIN_FILENO, STDOUT_FILENO) == -1) {
+      msg_out(crit, "dup2-1: %m");
+      exit(1);
+    }
+    if (dup2(STDIN_FILENO, STDERR_FILENO) == -1) {
+      msg_out(crit, "dup2-2: %m");
+      exit(1);
+    }
+
     switch(fork()) {
     case -1:
       msg_out(crit, "fork: %m");
