@@ -257,7 +257,7 @@ void parse_err(int sev, int line, char *msg)
 int str_to_addr(char *addr, struct bin_addr *dest)
 {
   char     *q;
-  int      len, i, c;
+  int	   len, i, c;
   struct addrinfo hints, *res0, *res;
   int      error;
   struct sockaddr_in   *sa;
@@ -286,7 +286,7 @@ int str_to_addr(char *addr, struct bin_addr *dest)
   case S5ATFQDN:
     if ((len = strlen(addr)) > 0 && len < 256) {
       dest->len_fqdn = len;
-      strncpy(dest->fqdn, addr, len);
+      strncpy((char *)dest->fqdn, addr, len);
     } else {
       error++;
     }
@@ -423,8 +423,8 @@ int readpasswd(FILE *fp, int ind,
     matched = 0;
     switch (addr.atype) {
     case S5ATFQDN:
-      if (strncasecmp(proxy_tbl[ind].proxy.fqdn,
-		      addr.fqdn, proxy_tbl[ind].proxy.len_fqdn) == 0)
+      if (strncasecmp((char *)proxy_tbl[ind].proxy.fqdn,
+		      (char *)addr.fqdn, proxy_tbl[ind].proxy.len_fqdn) == 0)
 	matched++;
       break;
     case S5ATIPV4:

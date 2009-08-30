@@ -33,7 +33,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "srelay.h"
-#if defined(FREEBSD) || defined(LINUX)
+#if defined(FREEBSD) || defined(LINUX) || defined(MACOSX)
 #include <pwd.h>
 #elif  SOLARIS
 #include <shadow.h>
@@ -47,7 +47,7 @@ int checkpasswd(char *, char *);
 
 int auth_pwd_server(int s)
 {
-  char buf[512];
+  u_char buf[512];
   int  r, len;
   char user[256];
   char pass[256];
@@ -75,7 +75,7 @@ int auth_pwd_server(int s)
     /* read error */
     return(-1);
   }
-  strncpy(user, &buf[2], len);
+  strncpy(user, (char *)&buf[2], len);
   user[len] = '\0';
 
   /* get passwd */
@@ -94,7 +94,7 @@ int auth_pwd_server(int s)
     /* read error */
     return(-1);
   }
-  strncpy(pass, &buf[1], len);
+  strncpy(pass, (char *)&buf[1], len);
   pass[len] = '\0';
 
   /* do authentication */
@@ -102,7 +102,7 @@ int auth_pwd_server(int s)
 
   /* logging */
   len = sizeof(struct sockaddr_storage);
-  if (getpeername(s, (struct sockaddr *)&client, &len) != 0) {
+  if (getpeername(s, (struct sockaddr *)&client, (socklen_t *)&len) != 0) {
     client_ip[0] = '\0';
   } else {
     error = getnameinfo((struct sockaddr *)&client, len,
@@ -134,7 +134,7 @@ int auth_pwd_server(int s)
 
 int auth_pwd_client(int s, int ind)
 {
-  char buf[640];
+  u_char buf[640];
   int  r, ulen, plen;
   FILE *fp;
   char user[256];
@@ -199,7 +199,7 @@ int auth_pwd_client(int s, int ind)
 
 int checkpasswd(char *user, char *pass)
 {
-#if defined(FREEBSD) || defined(LINUX)
+#if defined(FREEBSD) || defined(LINUX) || defined(MACOSX)
   struct passwd *pwd;
 #elif SOLARIS
   struct spwd *spwd, sp;
@@ -212,7 +212,7 @@ int checkpasswd(char *user, char *pass)
     return(-1);
   }
 
-#if defined(FREEBSD) || defined(LINUX)
+#if defined(FREEBSD) || defined(LINUX) || defined(MACOSX)
   setreuid(PROCUID, 0);
   pwd = getpwnam(user);
   setreuid(0, PROCUID);

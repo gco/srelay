@@ -143,7 +143,7 @@ int wait_for_read(int s, long sec)
   }
 }
 
-ssize_t timerd_read(int s, char *buf, size_t len, int sec, int flags)
+ssize_t timerd_read(int s, u_char *buf, size_t len, int sec, int flags)
 {
   ssize_t r = -1;
   settimer(sec);
@@ -152,7 +152,7 @@ ssize_t timerd_read(int s, char *buf, size_t len, int sec, int flags)
   return(r);
 }
 
-ssize_t timerd_write(int s, char *buf, size_t len, int sec)
+ssize_t timerd_write(int s, u_char *buf, size_t len, int sec)
 {
   ssize_t r = -1;
   settimer(sec);
@@ -185,7 +185,7 @@ int addr_comp(struct bin_addr *a1, struct bin_addr *a2, int mask)
       return 0;
     break;
   case S5ATFQDN:
-    if (strncmp(a2->fqdn, "*", sizeof("*")) == 0)
+    if (strncmp((char *)a2->fqdn, "*", sizeof("*")) == 0)
       return 0;
     break;
   default:
@@ -206,8 +206,8 @@ int addr_comp(struct bin_addr *a1, struct bin_addr *a2, int mask)
     case S5ATFQDN:
       if ( a1->len_fqdn < a2->len_fqdn )
 	break;
-      if (strncasecmp(a2->fqdn,
-		      &(a1->fqdn[a1->len_fqdn - a2->len_fqdn]),
+      if (strncasecmp((char *)a2->fqdn,
+		      (char *)(&(a1->fqdn[a1->len_fqdn - a2->len_fqdn])),
 		      a2->len_fqdn) == 0)
 	return 0;
       break;
@@ -309,7 +309,7 @@ int lookup_tbl(struct socks_req *req)
   if ( !match && req->dest.atype == S5ATFQDN ) {
     /* fqdn 2nd stage: try resolve and lookup */
 
-    strncpy(name, req->dest.fqdn, req->dest.len_fqdn);
+    strncpy(name, (char *)req->dest.fqdn, req->dest.len_fqdn);
     name[req->dest.len_fqdn] = '\0';
     memset(&hints, 0, sizeof(hints));
     hints.ai_socktype = SOCK_STREAM;
@@ -415,7 +415,7 @@ int resolv_host(struct bin_addr *addr, u_int16_t port, struct host_info *info)
 			NULL, 0,
 			info->port, sizeof(info->port),
 			NI_NUMERICSERV);
-    strncpy(info->host, addr->fqdn, addr->len_fqdn);
+    strncpy(info->host, (char *)addr->fqdn, addr->len_fqdn);
     info->host[addr->len_fqdn] = '\0';
   } else {
     strcpy(info->host, "?");
@@ -442,7 +442,7 @@ int log_request(int v, struct socks_req *req, struct req_host_info *info)
   int     direct = 0;
 
   len = sizeof(ss);
-  if (getpeername(req->s, (struct sockaddr *)&ss, &len) != 0) {
+  if (getpeername(req->s, (struct sockaddr *)&ss, (socklen_t *)&len) != 0) {
     strncpy(client.host, "?", sizeof(client.host));
     strncpy(client.port, "?", sizeof(client.port));
     error++;
@@ -493,7 +493,7 @@ int bind_sock(int s, struct socks_req *req, struct addrinfo *ai)
   /* try same port as client's */
   len = sizeof(ss);
   memset(&ss, 0, len);
-  if (getpeername(req->s, (struct sockaddr *)&ss, &len) != 0)
+  if (getpeername(req->s, (struct sockaddr *)&ss, (socklen_t *)&len) != 0)
     port = 0;
   else {
     switch (ss.ss_family) {
@@ -676,7 +676,7 @@ int proto_socks(int s)
 
   if (r > 0) {
     setsockopt(r, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof on);
-#ifdef FREEBSD
+#if defined(FREEBSD) || defined(MACOSX)
     setsockopt(r, SOL_SOCKET, SO_REUSEPORT, (char *)&on, sizeof on);
 #endif
     setsockopt(r, IPPROTO_TCP, TCP_NODELAY, (char *)&on, sizeof on);
@@ -697,6 +697,22 @@ int proto_socks4(int s)
 
   memset(&req, 0, sizeof(req));
   req.s = s;
+
+  /* find the interface that the socket is connected */
+  if (same_interface) {
+    len = sizeof(req.inaddr);
+    r = getsockname(s, (struct sockaddr*)&req.inaddr, (socklen_t *)&len);
+    if (r == 0) {
+      switch (req.inaddr.ss_family) {
+      case AF_INET:
+	((struct sockaddr_in*) &req.inaddr)->sin_port = 0;
+	break;
+      case AF_INET6:
+	((struct sockaddr_in6*) &req.inaddr)->sin6_port = 0;
+	break;
+      }
+    }
+  }
 
   r = timerd_read(s, buf, 1+1+2+4, TIMEOUTSEC, 0);
   if (r < 1+1+2+4) {    /* cannot read request */
@@ -736,7 +752,7 @@ int proto_socks4(int s)
       or,
           username '\0' hostname '\0'
   */
-  r = strlen(buf);        /* r should be 0 <= r <= 255 */
+  r = strlen((char *)buf);        /* r should be 0 <= r <= 255 */
   if (r < 0 || r > 255) {
     /* invalid username length */
     GEN_ERR_REP(s, 4);
@@ -788,6 +804,22 @@ int proto_socks5(int s)
 
   memset(&req, 0, sizeof(req));
   req.s = s;
+
+  /* find the interface that the socket is connected */
+  if (same_interface) {
+    len = sizeof(req.inaddr);
+    r = getsockname(s, (struct sockaddr*)&req.inaddr, (socklen_t *)&len);
+    if (r == 0) {
+      switch (req.inaddr.ss_family) {
+      case AF_INET:
+	((struct sockaddr_in*) &req.inaddr)->sin_port = 0;
+	break;
+      case AF_INET6:
+	((struct sockaddr_in6*) &req.inaddr)->sin6_port = 0;
+	break;
+      }
+    }
+  }
 
   /* peek first 5 bytes of request. */
   r = timerd_read(s, buf, sizeof(buf), TIMEOUTSEC, MSG_PEEK);
@@ -1037,6 +1069,17 @@ int socks_direct_conn(int ver, struct socks_req *req)
         continue;
       }
 
+      if (same_interface) {
+        /* bind the outgoing socket to the same interface
+	   as the inbound client */
+        error = bind(cs, (struct sockaddr*)&req->inaddr, sizeof(req->inaddr));
+        if (error) {
+          /* bind error */
+          GEN_ERR_REP(req->s, ver);
+          return(-1);
+        }
+      }
+
       if (connect(cs, res->ai_addr, res->ai_addrlen) < 0) {
         /* connect fail */
 	save_errno = errno;
@@ -1044,7 +1087,7 @@ int socks_direct_conn(int ver, struct socks_req *req)
         continue;
       }
       len = sizeof(ss);
-      if (getsockname(cs, (struct sockaddr *)&ss, &len) < 0) {
+      if (getsockname(cs, (struct sockaddr *)&ss, (socklen_t *)&len) < 0) {
 	save_errno = errno;
 	close(cs);
 	continue;
@@ -1105,7 +1148,7 @@ int socks_direct_conn(int ver, struct socks_req *req)
     /* get my socket name again to acquire an
        actual listen port number */
     len = sizeof(ss);
-    if (getsockname(acs, (struct sockaddr *)&ss, &len) == -1) {
+    if (getsockname(acs, (struct sockaddr *)&ss, (socklen_t *)&len) == -1) {
       /* getsockname failed */
       GEN_ERR_REP(req->s, ver);
       close(acs);
@@ -1127,7 +1170,7 @@ int socks_direct_conn(int ver, struct socks_req *req)
     }
       
     len = sizeof(ss);
-    if ((cs = accept(acs, (struct sockaddr *)&ss, &len)) < 0) {
+    if ((cs = accept(acs, (struct sockaddr *)&ss, (socklen_t *)&len)) < 0) {
       GEN_ERR_REP(req->s, ver);
       close(acs);
       return(-1);
@@ -1336,7 +1379,7 @@ int connect_to_socks(int ver, struct socks_req *req)
   /* string addr => addrinfo */
   memset(&hints, 0, sizeof(hints));
   hints.ai_socktype = SOCK_STREAM;
-  
+
   error = getaddrinfo(info.proxy.host, info.proxy.port, &hints, &res0);
   if (error) {
     /* getaddrinfo error */
@@ -1349,6 +1392,17 @@ int connect_to_socks(int ver, struct socks_req *req)
 		res->ai_socktype, res->ai_protocol);
     if ( cs < 0 ) {
       continue;
+    }
+
+    if (same_interface) {
+      /* bind the outgoing socket to the same interface
+	 as the inbound client */
+      error = bind(cs, (struct sockaddr*)&req->inaddr, sizeof(req->inaddr));
+      if (error) {
+        /* bind error */
+        GEN_ERR_REP(req->s, ver);
+        return(-1);
+      }
     }
 
     if (connect(cs, res->ai_addr, res->ai_addrlen) < 0) {
@@ -1463,7 +1517,7 @@ int proxy_reply(int v, int cs, int ss, int req)
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_family = AF_INET;
-	error = getaddrinfo(&buf[5], NULL, &hints, &res0);
+	error = getaddrinfo((char *)&buf[5], NULL, &hints, &res0);
 	if (error) {
 	  /* getaddrinfo error */
 	  return -1;

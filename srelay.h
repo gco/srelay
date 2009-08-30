@@ -49,10 +49,10 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <config.h>
 #endif
 
-#if defined(FREEBSD) || defined(SOLARIS)
+#if defined(FREEBSD) || defined(SOLARIS) || defined(MACOSX)
 #include <sys/filio.h>
 #endif
-#if defined(LINUX)
+#if defined(LINUX) || defined(MACOSX)
 #include <sys/ioctl.h>
 #endif
 
@@ -102,7 +102,7 @@ typedef    u_int32_t    socklen_t;
 # endif
 #endif
 
-#define version  "srelay 0.4.6a 2003/04/22 (Tomo.M)"
+#define version  "srelay 0.4.7 2009/08/30 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"
@@ -234,6 +234,8 @@ struct rtbl {
 struct socks_req {
   int      s;                 /* client socket */
   int      req;               /* request CONN/BIND */
+  struct sockaddr_storage inaddr;
+  	/* the local address that the client socket is connected to */
   struct bin_addr dest;       /* destination address */
   u_int16_t port;             /* destination port (host byte order) */
   u_int8_t  u_len;            /* user name length (socks v4) */
@@ -271,6 +273,7 @@ extern int cur_child;
 extern char method_tab[];
 extern int method_num;
 extern int bind_restrict;
+extern int same_interface;
 
 /* from init.c */
 extern char **str_serv_sock;
@@ -315,8 +318,8 @@ extern int serv_loop __P((void));
 
 /* socks.c */
 int wait_for_read __P((int, long));
-ssize_t timerd_read __P((int, char *, size_t, int, int));
-ssize_t timerd_write __P((int, char *, size_t, int));
+ssize_t timerd_read __P((int, u_char *, size_t, int, int));
+ssize_t timerd_write __P((int, u_char *, size_t, int));
 extern int proto_socks __P((int));
 
 /* get-bind.c */

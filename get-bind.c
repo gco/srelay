@@ -34,7 +34,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "srelay.h"
 
-#if defined(FREEBSD) || defined(SOLARIS) 
+#if defined(FREEBSD) || defined(SOLARIS) || defined(MACOSX) 
 #include <netinet/in.h>
 #include <sys/ioctl.h>
 #include <sys/sockio.h>
@@ -44,7 +44,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # include <net/if_dl.h>
 #endif
 
-#endif /* defined(FREEBSD) || defined(SOLARIS) */
+#endif /* defined(FREEBSD) || defined(SOLARIS) || defined(MACOSX) */
 
 #if defined(LINUX)
 #include <asm/types.h>
@@ -54,7 +54,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 static int get_ifconf(int, struct addrinfo *);
 #endif /* defined(LINUX) */
 
-#if defined(FREEBSD) || defined(SOLARIS) 
+#if defined(FREEBSD) || defined(SOLARIS) || defined(MACOSX) 
 
 #ifndef RTAX_DST
 #define RTAX_DST         0
@@ -294,7 +294,7 @@ int get_bind_addr(struct socks_req *req, struct addrinfo *ba)
   return(-1);
 }
 
-#endif /* defined(FREEBSD) || defined(SOLARIS) */
+#endif /* defined(FREEBSD) || defined(SOLARIS) || defined(MACOSX) */
 
 #if defined(LINUX)
 

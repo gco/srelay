@@ -2,6 +2,11 @@
 #  Changes
 #  $Id$
 #
+0.4.7 (2009/08/30)  Yeah! 6 year and more had passed.
+  + added feature of using same outgoing ip as incoming(-g)
+    	  (Thanks Comrade. testing will be needed.)
+  + fix compile errors on MacOSX for my own environment was shifted to it.
+
 0.4.6a (2003/04/22)
   + bug fix - avoid compile error (may be) on Linux. (Thanks Michal.)
   + adopt for more recent configure MACROs.

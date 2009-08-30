@@ -155,22 +155,22 @@ int set_sock_info(loginfo *li, int cs, int ss)
 
   len = sizeof(struct sockaddr_storage);
   /* get socket name of upstream side */
-  getsockname(ss, (struct sockaddr *)&li->mys, &len);
+  getsockname(ss, (struct sockaddr *)&li->mys, (socklen_t *)&len);
   li->mys_len = len;
 
   len = sizeof(struct sockaddr_storage);
   /* get socket name of downstream side */
-  getsockname(cs, (struct sockaddr *)&li->myc, &len);
+  getsockname(cs, (struct sockaddr *)&li->myc, (socklen_t *)&len);
   li->myc_len = len;
 
   len = sizeof(struct sockaddr_storage);
   /* get socket ss peer name */
-  getpeername(ss, (struct sockaddr *)&li->prs, &len);
+  getpeername(ss, (struct sockaddr *)&li->prs, (socklen_t *)&len);
   li->prs_len = len;
 
   len = sizeof(struct sockaddr_storage);
   /* get socket cs peer name */
-  getpeername(cs, (struct sockaddr *)&li->prc, &len);
+  getpeername(cs, (struct sockaddr *)&li->prc, (socklen_t *)&len);
   li->prc_len = len;
   return 0;
 }
@@ -357,7 +357,7 @@ int serv_loop()
     }
 
     len = sizeof(struct sockaddr_storage);
-    cs = accept(serv_sock[i], (struct sockaddr *)&cl, &len);
+    cs = accept(serv_sock[i], (struct sockaddr *)&cl, (socklen_t *)&len);
     if (cs < 0) {
       if (errno == EINTR
 #ifdef SOLARIS

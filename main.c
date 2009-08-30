@@ -51,6 +51,8 @@ int max_thread;
 int threading;
 #endif
 
+int same_interface = 0;
+
 int max_child;
 int cur_child;
 
@@ -84,6 +86,7 @@ void usage()
 	  "\t-s\tforce logging to syslog\n"
 	  "\t-t\tdisable threading\n"
 	  "\t-b\tavoid BIND port restriction\n"
+	  "\t-g\tuse the same interface for outbound as inbound\n"
 	  "\t-v\tshow version and exit\n"
 	  "\t-h\tshow this help and exit\n");
   exit(1);
@@ -125,7 +128,7 @@ int main(int ac, char **av)
 
   uid = getuid();
 
-  while((ch = getopt(ac, av, "a:c:i:m:o:p:u:frstbvh?")) != -1)
+  while((ch = getopt(ac, av, "a:c:i:m:o:p:u:frstbgvh?")) != -1)
     switch (ch) {
     case 'a':
       if (optarg != NULL) {
@@ -205,6 +208,10 @@ int main(int ac, char **av)
 #ifdef USE_THREAD
       threading = 0;    /* threading disabled. */
 #endif
+      break;
+
+    case 'g':
+      same_interface = 1;
       break;
 
     case 'f':
@@ -322,7 +329,7 @@ int main(int ac, char **av)
   setsignal(SIGTERM, cleanup);
   setsignal(SIGUSR1, SIG_IGN);
   setsignal(SIGUSR2, SIG_IGN);
-#ifndef FREEBSD
+#if !defined(FREEBSD) && !defined(MACOSX)
   setsignal(SIGPOLL, SIG_IGN);
 #endif
   setsignal(SIGVTALRM, SIG_IGN);
