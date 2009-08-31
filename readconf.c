@@ -384,8 +384,8 @@ int dot_to_masklen(char *addr)
     File format:
     # comment
     # proxy-host-ip/name   user    passwd
-    10.1.1.117             tomo    hogerata
-    dtmp163.kddi.com       bob     foobar
+    10.0.1.117             tomo    hogerata
+    mxs001.c-wind.com      bob     foobar
 
 */
 int readpasswd(FILE *fp, int ind, 
