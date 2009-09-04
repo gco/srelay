@@ -45,7 +45,7 @@ o MacOSX
 	$cp srelay /usr/local/sbin/.
 
     then, prepare the file called 'launchd plist'. Example is in 
-    scripts/. directry, 'local.srelay.plist'.
+    scripts directry, 'local.srelay.plist'.
     put this file into 
     	/Library/LaunchDaemons/.
 
@@ -55,7 +55,7 @@ o MacOSX
     daemon.* facility by default. please check your syslog.conf setting.
 
     	$ cd /Library/LaunchDaemons
-	$ launchctl load -w local.srelay.plist
+	$ launchctl load -F local.srelay.plist
 
 	    Sample plist file disables start up by default.
 	    '-F' option ignores this property and 'force' start up
@@ -82,7 +82,7 @@ o Solaris 10
     srelay.xml is a sample SMF service manifest description (may be).
 
     if no error, srelay process should be seen in ps result.
-    Log outputs are syslog demon.* facility.
+    Log outputs are syslog daemon.* facility.
 
     daemon stop/start operations.
     	 start srelay
