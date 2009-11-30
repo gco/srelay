@@ -1072,11 +1072,10 @@ int socks_direct_conn(int ver, struct socks_req *req)
       if (same_interface) {
         /* bind the outgoing socket to the same interface
 	   as the inbound client */
-        error = bind(cs, (struct sockaddr*)&req->inaddr, sizeof(req->inaddr));
-        if (error) {
+        if (bind(cs, (struct sockaddr*)&req->inaddr, sizeof(req->inaddr)) <0) {
           /* bind error */
-          GEN_ERR_REP(req->s, ver);
-          return(-1);
+          close(cs);
+          continue;
         }
       }
 
@@ -1352,7 +1351,8 @@ int connect_to_socks(int ver, struct socks_req *req)
       len = 22;
       break;
     case S5ATFQDN:
-      buf[4] = req->dest.len_fqdn;
+      len = req->dest.len_fqdn;
+      buf[4] = len;
       memcpy(&buf[5], req->dest.fqdn, len);
       buf[5+len]   = (req->port / 256);
       buf[5+len+1] = (req->port % 256);
@@ -1397,11 +1397,9 @@ int connect_to_socks(int ver, struct socks_req *req)
     if (same_interface) {
       /* bind the outgoing socket to the same interface
 	 as the inbound client */
-      error = bind(cs, (struct sockaddr*)&req->inaddr, sizeof(req->inaddr));
-      if (error) {
-        /* bind error */
-        GEN_ERR_REP(req->s, ver);
-        return(-1);
+      if (bind(cs, (struct sockaddr*)&req->inaddr, sizeof(req->inaddr)) < 0) {
+	close(cs);
+	continue;
       }
     }
 
