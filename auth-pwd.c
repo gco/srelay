@@ -132,13 +132,12 @@ int auth_pwd_server(int s)
   return(code);   /* access granted or not */
 }
 
-int auth_pwd_client(int s, int ind)
+int auth_pwd_client(int s, struct socks_req *req)
 {
   u_char buf[640];
-  int  r, ulen, plen;
+  int  r;
   FILE *fp;
-  char user[256];
-  char pass[256];
+  struct user_pass up;
 
   /* get username/password */
   setreuid(PROCUID, 0);
@@ -149,33 +148,32 @@ int auth_pwd_client(int s, int ind)
     return(-1);
   }
 
-  r = readpasswd(fp, ind,
-		 user, sizeof(user)-1, pass, sizeof(pass)-1);
+  r = readpasswd(fp, req, &up);
   fclose(fp);
 
   if ( r != 0) {
     /* no matching entry found or error */
     goto err_ret;
   }
-  ulen = strlen(user);
-  if ( ulen < 1 || ulen > 255) {
+
+  if ( up.ulen < 1 || up.ulen > 255) {
     /* invalid user name length */
     goto err_ret;
   }
-  plen = strlen(pass);
-  if ( plen < 1 || plen > 255 ) {
+
+  if ( up.plen < 1 || up.plen > 255 ) {
     /* invalid password length */
     goto err_ret;
   }
   /* build auth data */
   buf[0] = 0x01;
-  buf[1] = ulen & 0xff;
-  memcpy(&buf[2], user, ulen);
-  buf[2+ulen] = plen & 0xff;
-  memcpy(&buf[2+ulen+1], pass, plen);
+  buf[1] = up.ulen & 0xff;
+  memcpy(&buf[2], up.user, up.ulen);
+  buf[2+up.ulen] = up.plen & 0xff;
+  memcpy(&buf[2+up.ulen+1], up.pass, up.plen);
 
-  r = timerd_write(s, buf, 3+ulen+plen, TIMEOUTSEC);
-  if (r < 3+ulen+plen) {
+  r = timerd_write(s, buf, 3+up.ulen+up.plen, TIMEOUTSEC);
+  if (r < 3+up.ulen+up.plen) {
     /* cannot write */
     goto err_ret;
   }
@@ -192,8 +190,7 @@ int auth_pwd_client(int s, int ind)
   }
  err_ret:
   /* erace uname and passwd storage */
-  memset(user, 0, sizeof(user));
-  memset(pass, 0, sizeof(pass));
+  memset(&up, 0, sizeof(struct user_pass));
   return(-1);
 }
 

@@ -37,6 +37,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /* prototypes */
 char *skip   __P((char *));
 char *spell  __P((char *));
+int setport __P((u_int16_t *, char *));
 void add_entry __P((struct rtbl *, struct rtbl *, int));
 void parse_err __P((int, int, char *));
 int dot_to_masklen __P((char *));
@@ -81,15 +82,16 @@ int    proxy_tbl_ind;         /* next entry indicator */
 
 int readconf(FILE *fp)
 {
-  char     *p, *q, *r, *tok;
-  int      len;
-  int      n = 0;
-  char     *any = "any";
-  char     buf[MAXLINE];
-  struct rtbl tmp;
-  struct rtbl tmp_tbl[MAX_ROUTE];
-  struct rtbl *new_proxy_tbl;
-  int      new_proxy_tbl_ind = 0;
+  char		*p, *q, *r, *tok;
+  int		len;
+  int		n = 0;
+  char		*any = "any";
+  char		buf[MAXLINE];
+  struct rtbl	tmp;
+  struct rtbl	tmp_tbl[MAX_ROUTE];
+  struct rtbl	*new_proxy_tbl;
+  int		new_proxy_tbl_ind = 0;
+  int           px;
 
   while (fp && fgets(buf, MAXLINE-1, fp) != NULL) {
     memset(&tmp, 0, sizeof(struct rtbl));
@@ -99,6 +101,9 @@ int readconf(FILE *fp)
     if ((p = skip(p)) == NULL) { /* comment line or something */
       continue;
     }
+
+    /* relay method */
+    tmp.rl_meth = DIRECT;
 
     /* destination */
     tok = p; p = spell(p);
@@ -142,24 +147,27 @@ int readconf(FILE *fp)
 	tmp.port_l = PORT_MIN;
       } else {
 	*q = '\0';
-	tmp.port_l = atoi(tok);
+	if (setport(&(tmp.port_l), tok) < 0) {
+	  continue;
+	}
       }
       if (*++q == '\0') {       /* special case 'port-low-' */
 	tmp.port_h = PORT_MAX;
       } else {
-	tmp.port_h = atoi(q);
+	if (setport(&(tmp.port_h), q) < 0) {
+	  continue;
+	}
       }
     } else if ((strncasecmp(tok, any, strlen(any))) == 0) {
       tmp.port_l = PORT_MIN;
       tmp.port_h = PORT_MAX;
     } else {     /* may be single port */
-      tmp.port_l = tmp.port_h = atoi(tok);
-      if ( errno == ERANGE ) {
-	parse_err(warn, n, "parse dest port number.");
+      if (setport(&(tmp.port_l), tok) < 0) {
 	continue;
       }
+      tmp.port_h = tmp.port_l;
     }
-    if ((tmp.port_l > tmp.port_h) || (tmp.port_h == 0)) {
+    if (tmp.port_l > tmp.port_h) {
       parse_err(warn, n, "dest port range is invalid.");
       continue;
     }
@@ -169,28 +177,62 @@ int readconf(FILE *fp)
       continue;
     }
 
+    /* ================================ */
     /* proxy */
+    px = 0;
+  Proxy_Loop:
     tok = p; p = spell(p);
-    if (str_to_addr(tok, &tmp.proxy) != 0) {
+    if (str_to_addr(tok, &tmp.prx[px].proxy) != 0) {
       parse_err(warn, n, "proxy address parse error.");
       continue;
     }
 
+    /* relay method */
+    tmp.rl_meth = px + 1;
+
+    /* proxy proto */
+    tmp.prx[px].pproto = SOCKS;        /* defaults to socks proxy */
+
     /* proxy port */
     if ((p = skip(p)) == NULL) { /* proxy-port is ommited */
-      tmp.port = SOCKS_PORT;     /* defaults to socks port */
+      tmp.prx[px].pport = SOCKS_PORT;     /* defaults to socks port */
       add_entry(&tmp, tmp_tbl, new_proxy_tbl_ind++);
       /* remaining data is ignored */
       continue;
+
     } else {
       tok = p; p = spell(p);
-      tmp.port = atoi(tok);
-      if ( errno == ERANGE ) {
-	parse_err(warn, n, "parse proxy port number.");
+      q = strchr(tok, '/');
+      /* check wheather port has optional proto */
+      if (q != NULL) {
+	*q++ = '\0';  /* delimit */
+	len = strlen(q);
+	if (len > 0) {
+	  switch((int)*q) {
+	  case 'H':
+	  case 'h':
+	    tmp.prx[px].pproto = HTTP;
+	    break;
+	  case 'S':
+	  case 's':
+	  default:
+	    tmp.prx[px].pproto = SOCKS;
+	    break;
+	  }
+	}
+      }
+      if (setport(&(tmp.prx[px].pport), tok) < 0) {
 	continue;
       }
-      add_entry(&tmp, tmp_tbl, new_proxy_tbl_ind++);
     }
+    px++;
+    if ((p = skip(p)) == NULL || px >= PROXY_MAX ) {
+      add_entry(&tmp, tmp_tbl, new_proxy_tbl_ind++);
+      continue;
+    } else {
+      goto Proxy_Loop;
+    }
+
   }
 
   if ( new_proxy_tbl_ind <= 0 ) { /* no valid entries */
@@ -238,6 +280,20 @@ char *spell(char *s) {
     s++;
   *s++ = '\0';
   return(s);
+}
+
+int setport(u_int16_t *to, char *str) {
+  int	tport;
+
+  tport = atoi(str);
+  if ( errno == ERANGE
+       || tport < PORT_MIN
+       || tport > PORT_MAX) {
+    parse_err(warn, -1, "parse port number.");
+    return -1;
+  }
+  *to = tport;
+  return 0;
 }
 
 void add_entry(struct rtbl *r, struct rtbl *t, int ind)
@@ -388,58 +444,36 @@ int dot_to_masklen(char *addr)
     mxs001.c-wind.com      bob     foobar
 
 */
-int readpasswd(FILE *fp, int ind, 
-	       char *user, int ulen, char *pass, int plen)
+int readpasswd(FILE *fp, struct socks_req *req, struct user_pass *up)
 {
   char     buf[MAXLINE];
   char     *p, *tok;
   int      len;
   struct   bin_addr addr;
-  int      matched;
 
-  memset(&addr, 0, sizeof(addr));
-
-  if (memcmp(&(proxy_tbl[ind].proxy), &addr, sizeof(addr)) == 0) {
-    /* it must be no-proxy. how did you fetch up here ?
-       any way, you shouldn't be hanging aroud.
-    */
+  if (req->rtbl.rl_meth == DIRECT) {
+    /* This routine should be called in proxy context. */
+    /* but OK, thank you for calling me. */
     return(0);
   }
+
+  memset(up, 0, sizeof(struct user_pass));
+
   while (fgets(buf, MAXLINE-1, fp) != NULL) {
     p = buf; tok = 0;
     if ((p = skip(p)) == NULL) { /* comment line or something */
       continue;
     }
+
+    memset(&addr, 0, sizeof(addr));
     /* proxy host ip/name entry */
     tok = p; p = spell(p); len = strlen(tok);
     if (str_to_addr(tok, &addr) != 0)  /* error */
       continue;
 
-    if (proxy_tbl[ind].proxy.atype != addr.atype) {
-      /* address type mismatched */
+    if (addr_comp(&req->rtbl.prx[0].proxy, &addr, 0) < 0) {
       continue;
     }
-
-    matched = 0;
-    switch (addr.atype) {
-    case S5ATFQDN:
-      if (strncasecmp((char *)proxy_tbl[ind].proxy.fqdn,
-		      (char *)addr.fqdn, proxy_tbl[ind].proxy.len_fqdn) == 0)
-	matched++;
-      break;
-    case S5ATIPV4:
-      if (memcmp(proxy_tbl[ind].proxy.v4_addr, addr.v4_addr, 4) == 0)
-	matched++;
-      break;
-    case S5ATIPV6:
-      if (memcmp(proxy_tbl[ind].proxy.v6_addr, addr.v6_addr, 16) == 0)
-	matched++;
-      break;
-    default:
-      break;
-    }
-    if (!matched)
-      continue;
 
     if ((p = skip(p)) == NULL) {
       /* insufficient fields, ignore this line */
@@ -447,9 +481,10 @@ int readpasswd(FILE *fp, int ind,
     }
 
     tok = p; p = spell(p); len = strlen(tok); 
-    if (len <= ulen) {
-      strncpy(user, tok, len);
-      user[len] = '\0';
+    if (len < USER_PASS_MAX) {
+      strncpy(up->user, tok, len);
+      up->user[len] = '\0';
+      up->ulen = len;
     } else {
       /* invalid length, ignore this line */
       continue;
@@ -461,9 +496,10 @@ int readpasswd(FILE *fp, int ind,
     }
 
     tok = p; p = spell(p); len = strlen(tok);
-    if (len <= plen) {
-      strncpy(pass, tok, len);
-      pass[len] = '\0';
+    if (len < USER_PASS_MAX) {
+      strncpy(up->pass, tok, len);
+      up->pass[len] = '\0';
+      up->plen = len;
       /* OK, this is enough, */
       return(0);
     } else {
@@ -477,9 +513,11 @@ int readpasswd(FILE *fp, int ind,
 
 #if 0
 /* how to do with #if 1 */
-/* make readconf.o util.o
-   gcc -pthread -o readconf readconf.o util.o
-   ./readconf conf
+/*
+  ./configure
+  make readconf.o util.o
+  gcc -pthread -o readconf readconf.o util.o
+  ./readconf conf
 */
 /* dummy */
 char *pidfile;
@@ -539,7 +577,7 @@ int resolv_host(struct bin_addr *addr, char *p, int l)
     break;
   case S5ATFQDN:
   default:
-    strncpy(p, addr->fqdn, addr->len_fqdn);
+    strncpy(p, (char *)(addr->fqdn), addr->len_fqdn);
     p[addr->len_fqdn] = '\0';
     break;
   }
@@ -548,7 +586,7 @@ int resolv_host(struct bin_addr *addr, char *p, int l)
 
 void dump_entry()
 {
-  int    i;
+  int    i, j;
   char   host[NI_MAXHOST];
 
   for (i=0; i < proxy_tbl_ind; i++) {
@@ -562,9 +600,14 @@ void dump_entry()
     fprintf(stdout, "port_l: %u\n", proxy_tbl[i].port_l);
     fprintf(stdout, "port_h: %u\n", proxy_tbl[i].port_h);
 
-    resolv_host(&proxy_tbl[i].proxy, host, sizeof(host));
-    fprintf(stdout, "proxy: %s\n", host);
-    fprintf(stdout, "port: %u\n", proxy_tbl[i].port);
+    fprintf(stdout, "rl_meth: %d\n", proxy_tbl[i].rl_meth);
+
+    for (j=0; j<PROXY_MAX; j++) {
+      resolv_host(&proxy_tbl[i].prx[j].proxy, host, sizeof(host));
+      fprintf(stdout, "proxy[%d]: %s\n", j, host);
+      fprintf(stdout, "pport[%d]: %u\n", j, proxy_tbl[i].prx[j].pport);
+      fprintf(stdout, "pproto[%d]: %d\n", j, proxy_tbl[i].prx[j].pproto);
+    }
   }
 }
 

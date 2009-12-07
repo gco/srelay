@@ -222,25 +222,44 @@ struct bin_addr {            /* binary format of SOCKS address */
 #define fqdn      _addr._fqdn._name
 };
 
+enum { SOCKS = 0, HTTP };
+enum { DIRECT = 0, PROXY, PROXY1 };
+#define  USER_PASS_MAX   255
+#define  PROXY_MAX  2
+
 struct rtbl {
   struct bin_addr dest;       /* destination address */
   int             mask;       /* destination address mask len */
-  u_int16_t       port_l;     /* port range low  (HBO) */
+  u_int16_t       port_l;     /* port range low  (HostByteOrder) */
   u_int16_t       port_h;     /* port range high (HBO)*/
-  struct bin_addr proxy;      /* proxy socks address */
-  u_int16_t       port;       /* proxy socks port (HBO) */
+  int		  rl_meth;    /* relaying method(direct, proxy, 2proxy*/
+  struct {
+    struct bin_addr proxy;    /* proxy address */
+    u_int16_t       pport;    /* proxy port (HBO) */
+    int		    pproto;   /* proxy protocol (0:socks, 1:HTTP) */
+  } prx[PROXY_MAX];
 };
 
 struct socks_req {
-  int      s;                 /* client socket */
-  int      req;               /* request CONN/BIND */
+  int		  s;          /* client socket */
+  int		  req;        /* request CONN/BIND */
+  int		  ver;        /* client socks version (4,5) */
   struct sockaddr_storage inaddr;
   	/* the local address that the client socket is connected to */
+  int		  r;          /* forwarding socket */
   struct bin_addr dest;       /* destination address */
-  u_int16_t port;             /* destination port (host byte order) */
-  u_int8_t  u_len;            /* user name length (socks v4) */
-  char     user[255];         /* user name (socks v4) */ 
-  int      tbl_ind;           /* proxy table indicator */
+  u_int16_t	  port;       /* destination port (host byte order) */
+  u_int8_t	  u_len;      /* user name length (socks v4) */
+  char		  user[USER_PASS_MAX];  /* user name (socks v4) */ 
+  int		  tbl_ind;    /* proxy table indicator */
+  struct rtbl	  rtbl;       /* selected proxy routing */
+};
+
+struct user_pass {
+  char		user[USER_PASS_MAX];
+  int		ulen;
+  char		pass[USER_PASS_MAX];
+  int		plen;
 };
 
 #ifndef SIGFUNC_DEFINED
@@ -295,6 +314,7 @@ extern u_long   idle_timeout;
 extern int forcesyslog;
 
 /* from socks.c */
+extern int addr_comp __P((struct bin_addr *, struct bin_addr *, int));
 
 /* from auth-pwd.c */
 extern char *pwdfile;
@@ -311,7 +331,7 @@ extern int queue_init __P((void));
 
 /* readconf.c */
 extern int readconf __P((FILE *));
-extern int readpasswd __P((FILE *, int, char *, int, char *, int));
+extern int readpasswd __P((FILE *, struct socks_req *, struct user_pass *));
 
 /* relay.c */
 extern int serv_loop __P((void));
@@ -344,4 +364,4 @@ extern void proclist_drop __P((pid_t));
 
 /* auth-pwd.c */
 int auth_pwd_server __P((int));
-int auth_pwd_client __P((int, int));
+int auth_pwd_client __P((int, struct socks_req *));
