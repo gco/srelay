@@ -314,7 +314,6 @@ extern u_long   idle_timeout;
 extern int forcesyslog;
 
 /* from socks.c */
-extern int addr_comp __P((struct bin_addr *, struct bin_addr *, int));
 
 /* from auth-pwd.c */
 extern char *pwdfile;
@@ -347,6 +346,7 @@ int get_bind_addr __P((struct socks_req *, struct addrinfo *));
 
 /* util.c */
 extern void msg_out __P((int, const char *, ...));
+extern int addr_comp __P((struct bin_addr *, struct bin_addr *, int));
 extern void set_blocking __P((int));
 extern int settimer __P((int));
 extern void timeout __P((int));

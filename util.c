@@ -79,6 +79,117 @@ void msg_out(int severity, const char *fmt, ...)
 }
 
 /*
+  addr_comp:
+      compare bin_addr
+*/
+int addr_comp(struct bin_addr *a1, struct bin_addr *a2, int mask)
+{
+  int    ret = -1;
+  u_int32_t smask;
+  struct in_addr sin1, sin2;
+
+  u_int16_t  f, r, smask16;
+  int      i;
+  struct in6_addr sin61, sin62;
+
+  struct in6_addr in6addr_any = IN6ADDR_ANY_INIT;
+  struct in_addr  inaddr_any;
+
+  inaddr_any.s_addr = INADDR_ANY;
+
+  if (a1->atype != a2->atype)
+    return -1;             /* address type mismatched */
+
+  /*
+    if a2 entry is wildcard, everything is matched.
+    if mask == 0, the mask could not be set in conf or,
+    meaning-less setting. I'd rather guess former.
+
+  */
+    
+  switch (a1->atype) {
+
+  case S5ATIPV4:
+    if (memcmp(a2->v4_addr,
+	       &inaddr_any, sizeof inaddr_any) == 0) { /* wild card */
+      ret = 0;
+      break;
+    }
+
+    if (mask == 0 || mask == 32) { /* no need to process mask */
+      ret = memcmp(a2->v4_addr, a1->v4_addr, sizeof(struct in_addr));
+
+    } else if (mask > 0 && mask < 32) { /* process address mask */
+      smask = ( 0xffffffff << (32-mask) ) & 0xffffffff;
+      memcpy(&sin1, a1->v4_addr, sizeof(struct in_addr));
+      memcpy(&sin2, a2->v4_addr, sizeof(struct in_addr));
+      sin1.s_addr &= htonl(smask);
+      sin2.s_addr &= htonl(smask);
+      ret = memcmp(&sin1, &sin2, sizeof(struct in_addr));
+    }
+    break;
+  
+  case S5ATIPV6:
+    if (memcmp(a2->v6_addr,
+	       &in6addr_any, sizeof in6addr_any) == 0) { /* wild card */
+      ret = 0;
+      break;
+    }
+
+    if (a2->v6_scope != a1->v6_scope) {
+      ret = -1;
+      break;
+    }
+
+    if (mask == 0 || mask == 128) { /* no need to process mask */
+      ret = memcmp(a2->v6_addr, a1->v6_addr, sizeof(struct in6_addr));
+
+    } else if (mask > 0 && mask < 128) { /* process address mask */
+      f = mask / 8;
+      r = mask % 8;
+      if ( f > 16 ) { /* ??? why ??? */
+	f = 16; r = 0;
+      }
+      memcpy(&sin61, a1->v6_addr, sizeof(struct in6_addr));
+      memcpy(&sin62, a2->v6_addr, sizeof(struct in6_addr));
+      ret = 0;
+      for (i=0; i<f; i++) {
+	if (sin61.s6_addr[i] != sin62.s6_addr[i]) {
+	  ret = -1;
+	  break;
+	}
+      }
+      if (ret == 0) {
+	if (f < 16 && r > 0) {
+	  smask16 = (0xff << (8-r)) & 0xff;
+	  sin61.s6_addr[f] &= smask16;
+	  sin62.s6_addr[f] &= smask16;
+	  ret = memcmp(&sin61, &sin62, sizeof(struct in6_addr));
+	}
+      }
+    }
+    break;
+
+  case S5ATFQDN:
+    if (strncmp((char *)a2->fqdn, "*", strlen("*")) == 0) { /* wild card */
+      ret = 0;
+      break;
+    }
+    if ( a1->len_fqdn >= a2->len_fqdn ) {
+      ret = strncasecmp((char *)a2->fqdn,
+			(char *)(&(a1->fqdn[a1->len_fqdn - a2->len_fqdn])),
+			a2->len_fqdn);
+    }
+    break;
+
+  default:
+    ret = -1;
+
+  }
+  return ret;
+}
+
+/*
   set_blocking:
           i/o mode to descriptor
  */

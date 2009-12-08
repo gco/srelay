@@ -40,6 +40,7 @@ distclean: clean
 	rm -f config.log config.status config.cache Makefile config.h
 	rm -f *.orig *.rej
 	rm -rf configure.lineno autom4te*.cache
+	rm -f readconf
 
 init.o: init.c srelay.h
 readconf.o: readconf.c srelay.h
