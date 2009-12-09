@@ -1,5 +1,5 @@
 '\"
-.\" Copyright (c) 2001, Tomo.M
+.\" Copyright (C) 2001-2009, Tomo.M
 .\" All Rights Reserved
 .\" $Id$
 .TH srelay 8 "27 Mar 2003"
@@ -78,6 +78,12 @@ Logging to syslog, even if running foreground.
 .B \-t
 Disable threading. (valid in thread-enabled configuration)
 .TP
+.B \-b
+Avoid BIND port restriction.
+.TP
+.B \-g
+Use the same interface for outbound as inbound.
+.TP
 .B \-v
 Show version info.
 .TP
@@ -120,7 +126,7 @@ Configuration file format.
 .br
 # this line is comment.
 .br
-# destination			port range	next-hop/port
+# destination			port range	next [next-p x-next x-next-p]
 .br
 # subnet length
 .br
@@ -128,7 +134,7 @@ Configuration file format.
 .br
 # subnet mask in doted format	higher port is 65535
 .br
-223.224.2.128/255.255.255.128	512-		10.11.22.1/11080
+223.224.2.128/255.255.255.128	512-		10.11.22.1 11080
 .br
 # 				lower port is 1
 .br
@@ -149,6 +155,30 @@ Configuration file format.
 # no next-hop means connect direct.
 .br
 1.2.3.4				-
+.br
+#---
+
+If a next-p (next-hop socks port) is ommitted, is defaulted to 1080, as you can guess.
+A next-hop socks port can be like, 8080/H or 8080/S, where H, S means HTTP, SOCKS, respectively. this also defaults to SOCKS.
+.br
+HTTP relaying method is experimental, and supports minimized spec of HTTP Proxying.
+
+ 
+You can be on your network environment like this.
+.br
+[Client]-->(socks)[srelay]-->(http)[FireWall] -->(socks)[Socks_Island]-->[Dest]
+
+srelay.conf setting could have the third Host, [FilreWall] like this.
+
+# dest  dest-port proxy        proxy-p   proxy2    proxy2-p  
+.br
+Dest    any       Socks-Island 1080      FireWall  8080/H
+
+The listing order of proxy and proxy2 is farthest first order.
+
+
+
+
 .br
 .SS srelay.passwd
 Username/Password information for connecting next-hop socks server.
