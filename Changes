@@ -2,6 +2,11 @@
 #  Changes
 #  $Id$
 #
+0.4.7p1 (2009/12/09)
+  + fix socks.c for DEEP forward.
+  + some manpage descriptions added.
+0.4.7 (2009/12/09)
+
 0.4.7b5 (2009/12/08)
   + added DEEP forward (undocumented.)
 0.4.7b4 (2009/12/07)
