@@ -542,6 +542,8 @@ int proxy_connect(struct socks_req *req)
     memcpy(&cp_req, req, sizeof(struct socks_req));
     cp_req.ver = -1; /* fake req ver to suppress resp to client */
     cp_req.req = S5REQ_CONN;
+    memcpy(&cp_req.dest, &req->rtbl.prx[0].proxy, sizeof(struct bin_addr));
+    cp_req.port = req->rtbl.prx[0].pport;
     if (req->rtbl.prx[1].pproto == SOCKS) {
       r = connect_to_socks(&cp_req);
     } else if (req->rtbl.prx[1].pproto == HTTP) {
@@ -1098,19 +1100,8 @@ int connect_to_http(struct socks_req *req)
     return(-1);
   }
 
-  switch(req->rtbl.rl_meth) {
-  case PROXY:
-    error = resolv_host(&req->dest, req->port,
-			&dest);
-    break;
-  case PROXY1:
-    error = resolv_host(&req->rtbl.prx[0].proxy, req->rtbl.prx[0].pport,
-			&dest);
-    break;
-  default:
-    GEN_ERR_REP(req->s, req->ver);
-    return(-1);
-  }
+  error = resolv_host(&req->dest, req->port, &dest);
+
   snprintf(buf, sizeof(buf), "CONNECT %s:%s HTTP/1.0\r\n\r\n",
 	   dest.host, dest.port);
   /* http/proxy auth not supported. */
