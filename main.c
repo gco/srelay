@@ -135,7 +135,7 @@ int main(int ac, char **av)
 
   uid = getuid();
 
-  while((ch = getopt(ac, av, "a:c:i:m:o:p:u:frstbgvh?")) != -1)
+  while((ch = getopt(ac, av, "a:c:i:m:o:p:u:frstbwgvh?")) != -1)
     switch (ch) {
     case 'a':
       if (optarg != NULL) {
@@ -233,11 +233,11 @@ int main(int ac, char **av)
       forcesyslog = 1;
       break;
 
-#ifdef HAVE_LIBWRAP
     case 'w':
+#ifdef HAVE_LIBWRAP
       use_tcpwrap = 1;
-      break;
 #endif /* HAVE_LIBWRAP */
+      break;
 
     case 'v':
       show_version();
