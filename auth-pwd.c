@@ -135,42 +135,44 @@ int auth_pwd_server(int s)
 int auth_pwd_client(int s, struct socks_req *req)
 {
   u_char buf[640];
-  int  r;
-  FILE *fp;
+  int  r, ret, done;
+  FILE *fp = NULL;
   struct user_pass up;
 
+  ret = -1; done = 0;
   /* get username/password */
-  setreuid(PROCUID, 0);
-  fp = fopen(pwdfile, "r");
-  setreuid(0, PROCUID);
-  if ( fp == NULL ) {
-    /* cannot open pwdfile */
-    return(-1);
+  if (pwdfile != NULL) {
+    setreuid(PROCUID, 0);
+    fp = fopen(pwdfile, "r");
+    setreuid(0, PROCUID);
   }
 
-  r = readpasswd(fp, req, &up);
-  fclose(fp);
-
-  if ( r != 0) {
-    /* no matching entry found or error */
-    goto err_ret;
+  if ( fp != NULL ) {
+    r = readpasswd(fp, req, &up);
+    fclose(fp);
+    if ( r == 0 ) { /* readpasswd gets match */
+      if ( up.ulen >= 1 && up.ulen <= 255
+	   && up.plen >= 1 && up.plen <= 255 ) {
+	/* build auth data */
+	buf[0] = 0x01;
+	buf[1] = up.ulen & 0xff;
+	memcpy(&buf[2], up.user, up.ulen);
+	buf[2+up.ulen] = up.plen & 0xff;
+	memcpy(&buf[2+up.ulen+1], up.pass, up.plen);
+	done++;
+      }
+    }
   }
-
-  if ( up.ulen < 1 || up.ulen > 255) {
-    /* invalid user name length */
-    goto err_ret;
+  if (! done) {
+    /* build fake auth data */
+    /* little bit BAD idea */
+    buf[0] = 0x01;
+    buf[1] = 0x01;
+    buf[2] = ' ';
+    buf[3] = 0x01;
+    buf[4] = ' ';
+    up.ulen = up.plen = 1;
   }
-
-  if ( up.plen < 1 || up.plen > 255 ) {
-    /* invalid password length */
-    goto err_ret;
-  }
-  /* build auth data */
-  buf[0] = 0x01;
-  buf[1] = up.ulen & 0xff;
-  memcpy(&buf[2], up.user, up.ulen);
-  buf[2+up.ulen] = up.plen & 0xff;
-  memcpy(&buf[2+up.ulen+1], up.pass, up.plen);
 
   r = timerd_write(s, buf, 3+up.ulen+up.plen, TIMEOUTSEC);
   if (r < 3+up.ulen+up.plen) {
@@ -186,12 +188,13 @@ int auth_pwd_client(int s, struct socks_req *req)
   }
   if (buf[0] == 0x01 && buf[1] == 0) {
     /* username/passwd auth succeded */
-    return(0);
+    ret = 0;
   }
  err_ret:
+
   /* erace uname and passwd storage */
   memset(&up, 0, sizeof(struct user_pass));
-  return(-1);
+  return(ret);
 }
 
 int checkpasswd(char *user, char *pass)

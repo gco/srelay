@@ -1052,15 +1052,21 @@ int s5auth_s_rep(int s, int method)
 int s5auth_c(int s, struct socks_req *req)
 {
   u_char buf[512];
-  int r;
+  int r, num=0;
 
   /* auth method negotiation */
   buf[0] = 0x05;
-  buf[1] = 2;           /* number of methods.*/
+  buf[1] = 1;           /* number of methods.*/
   buf[2] = S5ANOAUTH;   /* no authentication */
-  buf[3] = S5AUSRPAS;   /* username/passwd authentication */
-  r = timerd_write(s, buf, 4, TIMEOUTSEC);
-  if ( r < 4 ) {
+  num = 3;
+
+  if ( pwdfile != NULL ) {
+    buf[1] = 2;
+    buf[3] = S5AUSRPAS;   /* username/passwd authentication */
+    num++;
+  }
+  r = timerd_write(s, buf, num, TIMEOUTSEC);
+  if ( r < num ) {
     /* cannot write */
     close(s);
     return(-1);

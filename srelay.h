@@ -316,7 +316,6 @@ extern int forcesyslog;
 /* from socks.c */
 
 /* from auth-pwd.c */
-extern char *pwdfile;
 
 /*
  *   external functions

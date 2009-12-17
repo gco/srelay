@@ -42,7 +42,7 @@ void usage         __P((void));
 char *config = CONFIG;
 char *ident = "srelay";
 char *pidfile = PIDFILE;
-char *pwdfile = PWDFILE;
+char *pwdfile = NULL;
 pid_t master_pid;
 
 #if USE_THREAD
