@@ -2,6 +2,12 @@
 #  Changes
 #  $Id$
 #
+0.4.7p3 (2009/12/17)
+  + can set the version of Next Hop socks in config.
+  + tcp_wrapper is enabled with -w command line option (disabled by default).
+0.4.7p2 (2009/12/17)
+  + socks5 auth method nego with next-hop be more appropriate.
+    (will not use user/pass when -u option wasn't specified.)
 0.4.7p1 (2009/12/09)
   + fix socks.c for DEEP forward.
   + some manpage descriptions added.

@@ -222,7 +222,7 @@ struct bin_addr {            /* binary format of SOCKS address */
 #define fqdn      _addr._fqdn._name
 };
 
-enum { SOCKS = 0, HTTP };
+enum { SOCKS = 0, HTTP, SOCKSv4, SOCKSv5 };
 enum { DIRECT = 0, PROXY, PROXY1 };
 #define  USER_PASS_MAX   255
 #define  PROXY_MAX  2
@@ -236,7 +236,7 @@ struct rtbl {
   struct {
     struct bin_addr proxy;    /* proxy address */
     u_int16_t       pport;    /* proxy port (HBO) */
-    int		    pproto;   /* proxy protocol (0:socks, 1:HTTP) */
+    int		    pproto;   /* proxy protocol (0:socks, 1:HTTP, ..) */
   } prx[PROXY_MAX];
 };
 
@@ -293,6 +293,9 @@ extern char method_tab[];
 extern int method_num;
 extern int bind_restrict;
 extern int same_interface;
+#ifdef HAVE_LIBWRAP
+extern int use_tcpwrap;
+#endif /* HAVE_LIBWRAP */
 
 /* from init.c */
 extern char **str_serv_sock;
@@ -362,5 +365,5 @@ extern void proclist_add __P((pid_t));
 extern void proclist_drop __P((pid_t));
 
 /* auth-pwd.c */
-int auth_pwd_server __P((int));
-int auth_pwd_client __P((int, struct socks_req *));
+extern int auth_pwd_server __P((int));
+extern int auth_pwd_client __P((int, struct socks_req *));

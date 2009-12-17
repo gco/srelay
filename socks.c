@@ -109,7 +109,7 @@ int proto_socks5 __P((struct socks_req *));
 int socks_direct_conn __P((struct socks_req *));
 int proxy_connect __P((struct socks_req *));
 int build_socks_request __P((struct socks_req *, u_char *, int));
-int connect_to_socks __P((struct socks_req *));
+int connect_to_socks __P((struct socks_req *, int));
 int socks_proxy_reply __P((int, struct socks_req *));
 int socks_rep __P((int , int , int , struct sockaddr *));
 int build_socks_reply __P((int, int, struct sockaddr *, u_char *));
@@ -544,10 +544,10 @@ int proxy_connect(struct socks_req *req)
     cp_req.req = S5REQ_CONN;
     memcpy(&cp_req.dest, &req->rtbl.prx[0].proxy, sizeof(struct bin_addr));
     cp_req.port = req->rtbl.prx[0].pport;
-    if (req->rtbl.prx[1].pproto == SOCKS) {
-      r = connect_to_socks(&cp_req);
-    } else if (req->rtbl.prx[1].pproto == HTTP) {
+    if (req->rtbl.prx[1].pproto == HTTP) {
       r = connect_to_http(&cp_req);
+    } else { /* SOCKS, SOCKSv4, SOCKSv5 */
+      r = connect_to_socks(&cp_req, req->rtbl.prx[1].pproto);
     }
     if (r < 0) {
       GEN_ERR_REP(req->s, req->ver);
@@ -556,11 +556,11 @@ int proxy_connect(struct socks_req *req)
     }
     /* not break, just continue */
   case PROXY:
-    if (req->rtbl.prx[0].pproto == SOCKS) {
-      return(connect_to_socks(req));
-    } else if (req->rtbl.prx[0].pproto == HTTP) {
+    if (req->rtbl.prx[0].pproto == HTTP) {
       /* limitation: cannot handle bind operation */
       return(connect_to_http(req));
+    } else { /* SOCKS, SOCKSv4, SOCKSv5 */
+      return(connect_to_socks(req, req->rtbl.prx[0].pproto));
     }
   default:
     break;
@@ -569,7 +569,7 @@ int proxy_connect(struct socks_req *req)
 
 }
 
-int connect_to_socks(struct socks_req *req)
+int connect_to_socks(struct socks_req *req, int pproto)
 {
   int     r, len = 0;
   u_char  buf[640];
@@ -581,28 +581,32 @@ int connect_to_socks(struct socks_req *req)
 
   /* process proxy request to next hop socks */
   /* first try socks5 server */
-  if ((len = build_socks_request(req, buf, 5)) > 0) {
-    if (s5auth_c(req->r, req) == 0) {
-      /* socks5 auth nego to next hop success */
-      r = timerd_write(req->r, buf, len, TIMEOUTSEC);
-      if ( r == len ) {
-	/* send request success */
-	r = socks_proxy_reply(5, req);
-	if (r == 0) {
-	  return(req->r);
+  if (pproto == SOCKS || pproto == SOCKSv5) {
+    if ((len = build_socks_request(req, buf, 5)) > 0) {
+      if (s5auth_c(req->r, req) == 0) {
+	/* socks5 auth nego to next hop success */
+	r = timerd_write(req->r, buf, len, TIMEOUTSEC);
+	if ( r == len ) {
+	  /* send request success */
+	  r = socks_proxy_reply(5, req);
+	  if (r == 0) {
+	    return(req->r);
+	  }
 	}
       }
     }
   }
 
   /* if an error, second try socks4 server */
-  if ((len = build_socks_request(req, buf, 4)) > 0) {
-    r = timerd_write(req->r, buf, len, TIMEOUTSEC);
-    if ( r == len ) {
-      /* send request success */
-      r = socks_proxy_reply(4, req);
-      if (r == 0) {
-	return(req->r);
+  if (pproto == SOCKS || pproto == SOCKSv4) {
+    if ((len = build_socks_request(req, buf, 4)) > 0) {
+      r = timerd_write(req->r, buf, len, TIMEOUTSEC);
+      if ( r == len ) {
+	/* send request success */
+	r = socks_proxy_reply(4, req);
+	if (r == 0) {
+	  return(req->r);
+	}
       }
     }
   }
@@ -1113,7 +1117,7 @@ int connect_to_http(struct socks_req *req)
   /* http/proxy auth not supported. */
 
   /* debug */
-  msg_out(norm, "%s", buf);
+  msg_out(norm, ">>HTTP CONN %s:%s", dest.host, dest.port);
 
   len = strlen(buf);
   r = timerd_write(req->r, (u_char *)buf, len, TIMEOUTSEC);
@@ -1217,7 +1221,7 @@ int forward_connect(struct socks_req *req, int *err)
 
   freeaddrinfo(res0);
 
-  msg_out(norm, "== forward connection %s:%s error=%d",
+  msg_out(norm, "Forward connect to %s:%s : %d",
 	  dest.host, dest.port, error);
   if (err != NULL)
     *err = error;

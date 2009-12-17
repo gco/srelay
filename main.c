@@ -53,6 +53,10 @@ int threading;
 
 int same_interface = 0;
 
+#ifdef HAVE_LIBWRAP
+int use_tcpwrap = 0;
+#endif /* HAVE_LIBWRAP */
+
 int max_child;
 int cur_child;
 
@@ -87,6 +91,9 @@ void usage()
 	  "\t-t\tdisable threading\n"
 	  "\t-b\tavoid BIND port restriction\n"
 	  "\t-g\tuse the same interface for outbound as inbound\n"
+#ifdef HAVE_LIBWRAP
+	  "\t-w\tuse tcp_wrapper access control\n"
+#endif /* HAVE_LIBWRAP */
 	  "\t-v\tshow version and exit\n"
 	  "\t-h\tshow this help and exit\n");
   exit(1);
@@ -225,6 +232,12 @@ int main(int ac, char **av)
     case 's':
       forcesyslog = 1;
       break;
+
+#ifdef HAVE_LIBWRAP
+    case 'w':
+      use_tcpwrap = 1;
+      break;
+#endif /* HAVE_LIBWRAP */
 
     case 'v':
       show_version();

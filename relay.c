@@ -128,18 +128,22 @@ int validate_access(char *client_addr, char *client_name)
 #ifdef HAVE_LIBWRAP
   int i;
 
-  /* proc ident pattern */
-  stat = hosts_ctl(ident, client_name, client_addr, STRING_UNKNOWN);
-  /* IP.PORT pattern */
-  for (i = 0; i < serv_sock_ind; i++) {
-    if (str_serv_sock[i] != NULL && str_serv_sock[i][0] != 0) {
-      stat |= hosts_ctl(str_serv_sock[i],
-			client_name, client_addr, STRING_UNKNOWN);
+  if ( use_tcpwrap ) {
+    /* proc ident pattern */
+    stat = hosts_ctl(ident, client_name, client_addr, STRING_UNKNOWN);
+    /* IP.PORT pattern */
+    for (i = 0; i < serv_sock_ind; i++) {
+      if (str_serv_sock[i] != NULL && str_serv_sock[i][0] != 0) {
+	stat |= hosts_ctl(str_serv_sock[i],
+			  client_name, client_addr, STRING_UNKNOWN);
+      }
     }
+  } else {
+#endif /* HAVE_LIBWRAP */
+    stat = 1;  /* allow access un-conditionaly */
+#ifdef HAVE_LIBWRAP
   }
-#else
-  stat = 1;  /* allow access un-conditionaly */
-#endif
+#endif /* HAVE_LIBWRAP */
 
   if (stat < 1) {
     msg_out(warn, "%s[%s] access denied.", client_name, client_addr);

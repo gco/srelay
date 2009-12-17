@@ -213,10 +213,16 @@ int readconf(FILE *fp)
 	  case 'h':
 	    tmp.prx[px].pproto = HTTP;
 	    break;
+	  case '4':
+	    tmp.prx[px].pproto = SOCKSv4;
+	    break;
+	  case '5':
+	    tmp.prx[px].pproto = SOCKSv5;
+	    break;
 	  case 'S':
 	  case 's':
 	  default:
-	    tmp.prx[px].pproto = SOCKS;
+	    tmp.prx[px].pproto = SOCKS; /* try v5->v4 */
 	    break;
 	  }
 	}
