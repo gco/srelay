@@ -273,8 +273,7 @@ int proto_socks4(struct socks_req *req)
   if ( r > 0 && r <= 255 ) {    /* r should be 1 <= r <= 255 */
     len = r - 1;
     req->u_len = len;
-    memcpy(&(req->user), buf, len);
-    req->user[len] = '\0';
+    memcpy(req->user, buf, len);
   } else {
     /* read error or something */
     GEN_ERR_REP(req->s, 4);
@@ -288,7 +287,6 @@ int proto_socks4(struct socks_req *req)
       len = r - 1;
       req->dest.len_fqdn = len;
       memcpy(req->dest.fqdn, buf, len);
-      req->dest.fqdn[len] = '\0';
     } else {
       /* read error or something */
       GEN_ERR_REP(req->s, 4);
@@ -657,7 +655,7 @@ int build_socks_request(struct socks_req *req, u_char *buf, int ver)
       if (r <= 0 || r > 255) {
 	return(-1);
       }
-      memcpy(&buf[len++], req->dest.fqdn, r);
+      memcpy(&buf[len], req->dest.fqdn, r);
       len += r;
       buf[len++] = 0x00;
       break;
