@@ -121,7 +121,9 @@ int forward_connect __P((struct socks_req *, int *));
 int bind_sock __P((int, struct socks_req *, struct addrinfo *));
 int do_bind __P((int, struct addrinfo *, u_int16_t));
 
+int read_until_delim __P((int, char *, size_t, int));
 int get_line __P((int, char *, size_t));
+int get_str __P((int, char *, size_t));
 int lookup_tbl __P((struct socks_req *));
 int resolv_host __P((struct bin_addr *, u_int16_t, struct host_info *));
 int log_request __P((struct socks_req *));
@@ -158,9 +160,8 @@ int proto_socks(int sock)
       }
     }
   }
-
-  r = timerd_read(sock, buf, sizeof(buf), TIMEOUTSEC, MSG_PEEK);
-  if ( r <= 0 ) {
+  r = timerd_read(sock, buf, 1, TIMEOUTSEC, 0);
+  if ( r < 1 ) {  /* EOF or error */
     close(sock);
     return(-1);
   }
@@ -170,6 +171,8 @@ int proto_socks(int sock)
   case 4:
     if (method_num > 0) {
       /* this implies this server is working in V5 mode */
+      /* dummy read for flush socket buf */
+      r = timerd_read(sock, buf, sizeof(buf), TIMEOUTSEC, 0);
       GEN_ERR_REP(sock, 4);
       msg_out(warn, "V4 request is not accepted.");
       r = -1;
@@ -222,18 +225,14 @@ int proto_socks(int sock)
 int proto_socks4(struct socks_req *req)
 {
   u_char  buf[512];
-  int     r, len;
+  int     r;
 
-  r = timerd_read(req->s, buf, 1+1+2+4, TIMEOUTSEC, 0);
-  if (r < 1+1+2+4) {    /* cannot read request */
+  r = timerd_read(req->s, buf+1, 1+2+4, TIMEOUTSEC, 0);
+  if (r < 1+2+4) {    /* cannot read request */
     GEN_ERR_REP(req->s, 4);
     return(-1);
   }
-  if ( buf[0] != 0x04 ) {
-    /* wrong version request (why ?) */
-    GEN_ERR_REP(req->s, 4);
-    return(-1);
-  }
+
   req->req = buf[1];
 
   /* check if request has socks4-a domain name format */
@@ -244,49 +243,36 @@ int proto_socks4(struct socks_req *req)
     req->dest.atype = S4ATIPV4;
   }
 
+  /* port */
   req->port = buf[2] * 0x100 + buf[3];
-
-  if (req->dest.atype == S4ATIPV4) {
-    memcpy(req->dest.v4_addr, &buf[4], 4);
-  }
+  /* IP */
+  memcpy(req->dest.v4_addr, &buf[4], 4);
   
-  /* read client user name in request */
-  r = timerd_read(req->s, buf, sizeof(buf), TIMEOUTSEC, MSG_PEEK);
-  if ( r < 1 ) {
-    /* error or client sends EOF */
-    GEN_ERR_REP(req->s, 4);
-    return(-1);
-  }
-  /* buf could contains
+  /* rest of the req could be
           username '\0'
       or,
           username '\0' hostname '\0'
   */
-  r = strlen((char *)buf);        /* r should be 0 <= r <= 255 */
+
+  /* read client user name in request */
+  r = get_str(req->s, (char *)buf, sizeof(buf));
+
   if (r < 0 || r > 255) {
     /* invalid username length */
     GEN_ERR_REP(req->s, 4);
     return(-1);
   }
 
-  r = timerd_read(req->s, buf, r+1, TIMEOUTSEC, 0);
-  if ( r > 0 && r <= 255 ) {    /* r should be 1 <= r <= 255 */
-    len = r - 1;
-    req->u_len = len;
-    memcpy(req->user, buf, len);
-  } else {
-    /* read error or something */
-    GEN_ERR_REP(req->s, 4);
-    return(-1);
-  }
+  req->u_len = r;
+  memcpy(req->user, buf, r);
 
   if ( req->dest.atype == S4ATFQDN ) {
     /* request is socks4-A specific */
-    r = timerd_read(req->s, buf, sizeof buf, TIMEOUTSEC, 0);
+    r = get_str(req->s, (char *)buf, sizeof(buf));
+
     if ( r > 0 && r <= 256 ) {   /* r should be 1 <= r <= 256 */
-      len = r - 1;
-      req->dest.len_fqdn = len;
-      memcpy(req->dest.fqdn, buf, len);
+      req->dest.len_fqdn = r;
+      memcpy(req->dest.fqdn, buf, r);
     } else {
       /* read error or something */
       GEN_ERR_REP(req->s, 4);
@@ -308,9 +294,10 @@ int proto_socks5(struct socks_req *req)
   u_char    buf[512];
   int     r, len;
 
-  /* peek first 5 bytes of request. */
-  r = timerd_read(req->s, buf, sizeof(buf), TIMEOUTSEC, MSG_PEEK);
-  if ( r < 5 ) {
+  /* read first 4 bytes of request. */
+  r = timerd_read(req->s, buf, 4, TIMEOUTSEC, 0);
+
+  if ( r < 4 ) {
     /* cannot read client request */
     close(req->s);
     return(-1);
@@ -327,8 +314,8 @@ int proto_socks5(struct socks_req *req)
 
   switch(req->dest.atype) {
   case S5ATIPV4:  /* IPv4 address */
-    r = timerd_read(req->s, buf, 4+4+2, TIMEOUTSEC, 0);
-    if (r < 4+4+2) {     /* cannot read request (why?) */
+    r = timerd_read(req->s, buf+4, 4+2, TIMEOUTSEC, 0);
+    if (r < 4+2) {     /* cannot read request (why?) */
       GEN_ERR_REP(req->s, 5);
       return(-1);
     }
@@ -337,8 +324,8 @@ int proto_socks5(struct socks_req *req)
     break;
 
   case S5ATIPV6:
-    r = timerd_read(req->s, buf, 4+16+2, TIMEOUTSEC, 0);
-    if (r < 4+16+2) {     /* cannot read request (why?) */
+    r = timerd_read(req->s, buf+4, 16+2, TIMEOUTSEC, 0);
+    if (r < 16+2) {     /* cannot read request (why?) */
       GEN_ERR_REP(req->s, 5);
       return(-1);
     }
@@ -347,20 +334,26 @@ int proto_socks5(struct socks_req *req)
     break;
 
   case S5ATFQDN:  /* string or FQDN */
+    r = timerd_read(req->s, buf+4, 1, TIMEOUTSEC, 0);
+    if (r < 1) {     /* cannot read request (why?) */
+      GEN_ERR_REP(req->s, 5);
+      return(-1);
+    }
+
     if ((len = buf[4]) < 0 || len > 255) {
       /* invalid length */
       socks_rep(req->s, 5, S5EINVADDR, 0);
       close(req->s);
       return(-1);
     }
-    r = timerd_read(req->s, buf, 4+1+len+2, TIMEOUTSEC, 0);
-    if ( r < 4+1+len+2 ) {  /* cannot read request (why?) */
+    r = timerd_read(req->s, buf+5, len+2, TIMEOUTSEC, 0);
+    if ( r < len+2 ) {  /* cannot read request (why?) */
       GEN_ERR_REP(req->s, 5);
       return(-1);
     }
     memcpy(req->dest.fqdn, &buf[5], len);
     req->dest.len_fqdn = len;
-    req->port = buf[4+1+len] * 0x100 + buf[4+1+len+1];
+    req->port = buf[5+len] * 0x100 + buf[5+len+1];
     break;
 
   default:
@@ -965,8 +958,8 @@ int s5auth_s(int s)
   int method=0, done=0;
 
   /* auth method negotiation */
-  r = timerd_read(s, buf, 2, TIMEOUTSEC, 0);
-  if ( r < 2 ) {
+  r = timerd_read(s, buf+1, 1, TIMEOUTSEC, 0);
+  if ( r < 1 ) {
     /* cannot read */
     s5auth_s_rep(s, S5ANOTACC);
     return(-1);
@@ -1219,7 +1212,7 @@ int forward_connect(struct socks_req *req, int *err)
 
   freeaddrinfo(res0);
 
-  msg_out(norm, "Forward connect to %s:%s : %d",
+  msg_out(norm, "Forward connect to %s:%s rc=%d",
 	  dest.host, dest.port, error);
   if (err != NULL)
     *err = error;
@@ -1352,13 +1345,27 @@ ssize_t timerd_write(int s, u_char *buf, size_t len, int sec)
   return(r);
 }
 
-int get_line(int s, char *buf, size_t len) {
+int get_line(int s, char *buf, size_t len)
+{
+  return read_until_delim(s, buf, len, 012);
+}
+
+int get_str(int s, char *buf, size_t len)
+{
+  int r = read_until_delim(s, buf, len, 0);
+  if (r > 0)
+    r--;
+  return(r); 
+}
+
+int read_until_delim(int s, char *buf, size_t len, int delim)
+{
   int     r = 0;
   char   *p = buf;
   int     ret;
 
   while ( len > 1 ) { /* guard the buf */
-    ret = recvfrom(s, p, 1, 0, 0, 0);
+    ret = timerd_read(s, (u_char *)p, 1, TIMEOUTSEC, 0);
     if (ret < 0) {
       if (errno == EINTR) {  /* not thread safe ?? */
 	continue;
@@ -1369,7 +1376,7 @@ int get_line(int s, char *buf, size_t len) {
       len = 0; /* to exit loop */
     } else {
       len--;
-      if (*p == 012) { /* New Line */
+      if (*p == delim) {
 	len = 0; /* to exit loop */
       }
       r++; p++;
