@@ -251,12 +251,9 @@ int checkpasswd(char *user, char *pass)
   memset(spwd->sp_pwdp, 0, strlen(spwd->sp_pwdp));
 #endif
 
-#if defined(FREEBSD) || defined(SOLARIS)
   if (matched) {
     return(0);
   } else {
     return(-1);
   }
-#endif
-  return(0);
 }
