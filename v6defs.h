@@ -3,7 +3,7 @@
   $Id$
          IPv6 related definisions mainly for old Solaris.
 
-Copyright (C) 2003-2009 Tomo.M (author).
+Copyright (C) 2003-2010 Tomo.M (author).
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without

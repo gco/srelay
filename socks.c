@@ -2,7 +2,7 @@
   socks.c:
   $Id$
 
-Copyright (C) 2001-2009 Tomo.M (author).
+Copyright (C) 2001-2010 Tomo.M (author).
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -436,6 +436,14 @@ int socks_direct_conn(struct socks_req *req)
       GEN_ERR_REP(req->s, req->ver);
       return(-1);
     }
+
+#ifdef SO_BINDTODEVICE
+    if (bindtodevice && do_bindtodevice(acs, bindtodevice) < 0) {
+      GEN_ERR_REP(req->s, ver);
+      close(acs);
+      return(-1);
+    }
+#endif
 
     if (bind_sock(acs, req, &ba) != 0) {
       GEN_ERR_REP(req->s, req->ver);
@@ -1142,6 +1150,28 @@ int connect_to_http(struct socks_req *req)
   return(-1);
 }
 
+#ifdef SO_BINDTODEVICE
+/*
+  do_bindtodevice:
+          bind socket to named device.
+ */
+#include <net/if.h>
+static int do_bindtodevice(int cs, char *dev)
+{
+  int rc;
+  struct ifreq interface;
+
+  strncpy(interface.ifr_name, dev, IFNAMSIZ);
+  setreuid(PROCUID, 0);
+  rc = setsockopt(cs, SOL_SOCKET, SO_BINDTODEVICE,
+                  (char *)&interface, sizeof(interface));
+  setreuid(0, PROCUID);
+  if (rc < 0)
+    msg_out(crit, "setsockopt SO_BINDTODEVICE(%s) failed: %d", dev, errno);
+  return(rc);
+}
+#endif
+
 /*
   forward_connect:
       just resolve host and connect to her.
@@ -1189,6 +1219,14 @@ int forward_connect(struct socks_req *req, int *err)
       /* socket error */
       continue;
     }
+
+#ifdef SO_BINDTODEVICE
+    if (bindtodevice && do_bindtodevice(cs, bindtodevice) < 0) {
+      save_errno = errno;
+      close(cs);
+      continue;
+    }
+#endif
 
     if (same_interface) {
       /* bind the outgoing socket to the same interface

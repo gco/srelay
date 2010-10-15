@@ -2,7 +2,7 @@
   get-bind.c:
   $Id$
 
-Copyright (C) 2001-2009 Tomo.M (author).
+Copyright (C) 2001-2010 Tomo.M (author).
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -50,6 +50,18 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <asm/types.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
+#include <linux/version.h> 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,19) 
+# include <linux/if_addr.h> 
+#endif 
+#ifndef IFA_RTA 
+# define IFA_RTA(r) ((struct rtattr *) ((char *)(r) + NLMSG_ALIGN (sizeof (struct ifaddrmsg)))) 
+# define IFA_PAYLOAD(n) NLMSG_PAYLOAD (n, sizeof (struct ifaddrmsg)) 
+#endif 
+#ifndef IFLA_RTA 
+# define IFLA_RTA(r) ((struct rtattr *) ((char *)(r) + NLMSG_ALIGN (sizeof (struct ifinfomsg)))) 
+# define IFLA_PAYLOAD(n) NLMSG_PAYLOAD (n, sizeof (struct ifinfomsg)) 
+#endif 
 
 static int get_ifconf(int, struct addrinfo *);
 #endif /* defined(LINUX) */

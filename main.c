@@ -2,7 +2,7 @@
   main.c:
   $Id$
 
-Copyright (C) 2001-2009 Tomo.M (author).
+Copyright (C) 2001-2010 Tomo.M (author).
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -33,6 +33,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include <sys/stat.h>
+#include <syslog.h>
 #include "srelay.h"
 
 /* prototypes */
@@ -43,6 +44,7 @@ char *config = CONFIG;
 char *ident = "srelay";
 char *pidfile = PIDFILE;
 char *pwdfile = NULL;
+char *bindtodevice = NULL;
 pid_t master_pid;
 
 #if USE_THREAD
@@ -80,6 +82,9 @@ void usage()
   fprintf(stderr, "options:\n"
 	  "\t-c file\tconfig file\n"
 	  "\t-i i/f\tlisten interface IP[:PORT]\n"
+#ifdef SO_BINDTODEVICE
+	  "\t-J i/f\toutbound interface name\n"
+#endif
 	  "\t-m num\tmax child/thread\n"
 	  "\t-o min\tidle timeout minutes\n"
 	  "\t-p file\tpid file\n"
@@ -135,7 +140,9 @@ int main(int ac, char **av)
 
   uid = getuid();
 
-  while((ch = getopt(ac, av, "a:c:i:m:o:p:u:frstbwgvh?")) != -1)
+  openlog(ident, LOG_PID, LOG_DAEMON);
+
+  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:frstbwgvh?")) != -1)
     switch (ch) {
     case 'a':
       if (optarg != NULL) {
@@ -189,6 +196,14 @@ int main(int ac, char **av)
 	}
       }
       break;
+
+#ifdef SO_BINDTODEVICE
+    case 'J':
+      if (optarg != NULL) {
+	bindtodevice = strdup(optarg);
+      }
+      break;
+#endif
 
     case 'o':
       if (optarg != NULL) {

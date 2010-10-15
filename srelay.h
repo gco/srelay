@@ -3,7 +3,7 @@
   $Id$
          common definitions.
 
-Copyright (C) 2001-2009 Tomo.M (author).
+Copyright (C) 2001-2010 Tomo.M (author).
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -287,6 +287,7 @@ extern char *config;
 extern char *ident;
 extern char *pidfile;
 extern char *pwdfile;
+extern char *bindtodevice;
 extern int max_child;
 extern int cur_child;
 extern char method_tab[];

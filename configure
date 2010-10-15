@@ -1874,8 +1874,8 @@ _ACEOF
 
 	;;
   linux*)
-	case "$build_cpu" in
-	  i*86)
+	case "$host_cpu" in
+	  i*86|mips*|powerpc*|sparc*)
 	    OS=LINUX
 	    cat >>confdefs.h <<\_ACEOF
 #define LINUX 1
