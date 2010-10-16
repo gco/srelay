@@ -120,6 +120,9 @@ int connect_to_http __P((struct socks_req *));
 int forward_connect __P((struct socks_req *, int *));
 int bind_sock __P((int, struct socks_req *, struct addrinfo *));
 int do_bind __P((int, struct addrinfo *, u_int16_t));
+#ifdef SO_BINDTODEVICE
+static int do_bindtodevice __P((int, char *));
+#endif
 
 int read_until_delim __P((int, char *, size_t, int));
 int get_line __P((int, char *, size_t));
@@ -439,7 +442,7 @@ int socks_direct_conn(struct socks_req *req)
 
 #ifdef SO_BINDTODEVICE
     if (bindtodevice && do_bindtodevice(acs, bindtodevice) < 0) {
-      GEN_ERR_REP(req->s, ver);
+      GEN_ERR_REP(req->s, req->ver);
       close(acs);
       return(-1);
     }
@@ -1150,28 +1153,6 @@ int connect_to_http(struct socks_req *req)
   return(-1);
 }
 
-#ifdef SO_BINDTODEVICE
-/*
-  do_bindtodevice:
-          bind socket to named device.
- */
-#include <net/if.h>
-static int do_bindtodevice(int cs, char *dev)
-{
-  int rc;
-  struct ifreq interface;
-
-  strncpy(interface.ifr_name, dev, IFNAMSIZ);
-  setreuid(PROCUID, 0);
-  rc = setsockopt(cs, SOL_SOCKET, SO_BINDTODEVICE,
-                  (char *)&interface, sizeof(interface));
-  setreuid(0, PROCUID);
-  if (rc < 0)
-    msg_out(crit, "setsockopt SO_BINDTODEVICE(%s) failed: %d", dev, errno);
-  return(rc);
-}
-#endif
-
 /*
   forward_connect:
       just resolve host and connect to her.
@@ -1334,6 +1315,28 @@ int do_bind(int s, struct addrinfo *ai, u_int16_t p)
   setreuid(0, PROCUID);
   return(r);
 }
+
+#ifdef SO_BINDTODEVICE
+/*
+  do_bindtodevice:
+          bind socket to named device.
+ */
+#include <net/if.h>
+static int do_bindtodevice(int cs, char *dev)
+{
+  int rc;
+  struct ifreq interface;
+
+  strncpy(interface.ifr_name, dev, IFNAMSIZ);
+  setreuid(PROCUID, 0);
+  rc = setsockopt(cs, SOL_SOCKET, SO_BINDTODEVICE,
+                  (char *)&interface, sizeof(interface));
+  setreuid(0, PROCUID);
+  if (rc < 0)
+    msg_out(crit, "setsockopt SO_BINDTODEVICE(%s) failed: %d", dev, errno);
+  return(rc);
+}
+#endif
 
 /*
   wait_for_read:
