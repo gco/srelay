@@ -132,7 +132,7 @@ int auth_pwd_server(int s)
   return(code);   /* access granted or not */
 }
 
-int auth_pwd_client(int s, struct socks_req *req)
+int auth_pwd_client(int s, bin_addr *proxy)
 {
   u_char buf[640];
   int  r, ret, done;
@@ -148,7 +148,7 @@ int auth_pwd_client(int s, struct socks_req *req)
   }
 
   if ( fp != NULL ) {
-    r = readpasswd(fp, req, &up);
+    r = readpasswd(fp, proxy, &up);
     fclose(fp);
     if ( r == 0 ) { /* readpasswd gets match */
       if ( up.ulen >= 1 && up.ulen <= 255

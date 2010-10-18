@@ -82,7 +82,7 @@ void msg_out(int severity, const char *fmt, ...)
   addr_comp:
       compare bin_addr
 */
-int addr_comp(struct bin_addr *a1, struct bin_addr *a2, int mask)
+int addr_comp(bin_addr *a1, bin_addr *a2, int mask)
 {
   int    ret = -1;
   u_int32_t smask;

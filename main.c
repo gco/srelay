@@ -38,7 +38,9 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /* prototypes */
 void show_version  __P((void));
-void usage         __P((void));
+void usage	   __P((void));
+int serv_loop	   __P((void));
+int validate_access __P((char *, char *));
 
 char *config = CONFIG;
 char *ident = "srelay";
@@ -57,6 +59,13 @@ int same_interface = 0;
 
 #ifdef HAVE_LIBWRAP
 int use_tcpwrap = 0;
+# include <tcpd.h>
+# ifdef LINUX
+#  include <syslog.h>
+int    allow_severity = LOG_AUTH|LOG_INFO;
+int    deny_severity  = LOG_AUTH|LOG_NOTICE;
+# endif /* LINUX */
+extern int hosts_ctl __P((char *, char *, char *, char *));
 #endif /* HAVE_LIBWRAP */
 
 int max_child;
@@ -102,6 +111,234 @@ void usage()
 	  "\t-v\tshow version and exit\n"
 	  "\t-h\tshow this help and exit\n");
   exit(1);
+}
+
+int validate_access(char *client_addr, char *client_name)
+{
+  int stat = 0;
+#ifdef HAVE_LIBWRAP
+  int i;
+
+  if ( use_tcpwrap ) {
+    /* proc ident pattern */
+    stat = hosts_ctl(ident, client_name, client_addr, STRING_UNKNOWN);
+    /* IP.PORT pattern */
+    for (i = 0; i < serv_sock_ind; i++) {
+      if (str_serv_sock[i] != NULL && str_serv_sock[i][0] != 0) {
+	stat |= hosts_ctl(str_serv_sock[i],
+			  client_name, client_addr, STRING_UNKNOWN);
+      }
+    }
+  } else {
+#endif /* HAVE_LIBWRAP */
+    stat = 1;  /* allow access un-conditionaly */
+#ifdef HAVE_LIBWRAP
+  }
+#endif /* HAVE_LIBWRAP */
+
+  if (stat < 1) {
+    msg_out(warn, "%s[%s] access denied.", client_name, client_addr);
+  }
+
+  return stat;
+}
+
+#ifdef USE_THREAD
+pthread_mutex_t mutex_select;
+pthread_mutex_t mutex_gh0;
+#endif
+
+int serv_loop()
+{
+
+  SOCKS_STATE	state;
+  loginfo	li;
+
+  int    cs;
+  struct sockaddr_storage cl;
+  fd_set readable;
+  int    i, n, len;
+  int    error;
+  pid_t  pid;
+
+  memset(&state, 0, sizeof(state));
+  memset(&li, 0, sizeof(li));
+  state.li = &li;
+
+#ifdef USE_THREAD
+  if (threading) {
+    blocksignal(SIGHUP);
+    blocksignal(SIGINT);
+    blocksignal(SIGUSR1);
+  }
+#endif
+
+  for (;;) {
+    readable = allsock;
+
+    MUTEX_LOCK(mutex_select);
+    n = select(maxsock+1, &readable, 0, 0, 0);
+    if (n <= 0) {
+      if (n < 0 && errno != EINTR) {
+        msg_out(warn, "select: %m");
+      }
+      MUTEX_UNLOCK(mutex_select);
+      continue;
+    }
+
+#ifdef USE_THREAD
+    if ( ! threading ) {
+#endif
+      /* handle any queued signal flags */
+      if (FD_ISSET(sig_queue[0], &readable)) {
+        if (ioctl(sig_queue[0], FIONREAD, &i) != 0) {
+          msg_out(crit, "ioctl: %m");
+          exit(-1);
+        }
+        while (--i >= 0) {
+          char c;
+          if (read(sig_queue[0], &c, 1) != 1) {
+            msg_out(crit, "read: %m");
+            exit(-1);
+          }
+          switch(c) {
+          case 'H': /* sighup */
+            reload();
+            break;
+          case 'C': /* sigchld */
+            reapchild();
+            break;
+          case 'T': /* sigterm */
+            cleanup();
+            break;
+          default:
+            break;
+          }
+        }
+      }
+#ifdef USE_THREAD
+    }
+#endif
+
+    for ( i = 0; i < serv_sock_ind; i++ ) {
+      if (FD_ISSET(serv_sock[i], &readable)) {
+	n--;
+	break;
+      }
+    }
+    if ( n < 0 || i >= serv_sock_ind ) {
+      MUTEX_UNLOCK(mutex_select);
+      continue;
+    }
+
+    len = sizeof(struct sockaddr_storage);
+    cs = accept(serv_sock[i], (struct sockaddr *)&cl, (socklen_t *)&len);
+    if (cs < 0) {
+      if (errno == EINTR
+#ifdef SOLARIS
+	  || errno == EPROTO
+#endif
+	  || errno == EWOULDBLOCK
+	  || errno == ECONNABORTED) {
+	; /* ignore */
+      } else {
+	/* real accept error */
+	msg_out(warn, "accept: %m");
+      }
+      MUTEX_UNLOCK(mutex_select);
+      continue;
+    }
+    MUTEX_UNLOCK(mutex_select);
+
+#ifdef USE_THREAD
+    if ( !threading ) {
+#endif
+      if (max_child > 0 && cur_child >= max_child) {
+	msg_out(warn, "child: cur %d; exeedeing max(%d)",
+		          cur_child, max_child);
+	close(cs);
+	continue;
+      }
+#ifdef USE_THREAD
+    }
+#endif
+
+    error = getnameinfo((struct sockaddr *)&cl, len,
+			li.cl_addr, sizeof(li.cl_addr),
+			NULL, 0,
+			NI_NUMERICHOST);
+    if (resolv_client) {
+      error = getnameinfo((struct sockaddr *)&cl, len,
+			  li.cl_name, sizeof(li.cl_name),
+			  NULL, 0, 0);
+      msg_out(norm, "%s[%s] connected", li.cl_name, li.cl_addr);
+    } else {
+      msg_out(norm, "%s connected", li.cl_addr);
+      strncpy(li.cl_name, li.cl_addr, sizeof(li.cl_name));
+    }
+
+    i = validate_access(li.cl_addr, li.cl_name);
+    if (i < 1) {
+      /* access denied */
+      close(cs);
+      continue;
+    }
+
+    set_blocking(cs);
+
+    state.s = cs;
+
+    /* get downstream-side socket/peer name */
+    len = sizeof(struct sockaddr_storage);
+    getsockname(cs, (struct sockaddr*)&li.myc.addr, (socklen_t *)&len);
+    li.myc.len = len;
+    len = sizeof(struct sockaddr_storage);
+    getpeername(cs, (struct sockaddr*)&li.prc.addr, (socklen_t *)&len);
+    li.prc.len = len;
+
+
+#ifdef USE_THREAD
+    if (!threading ) {
+#endif
+      blocksignal(SIGHUP);
+      blocksignal(SIGCHLD);
+      pid = fork();
+      switch (pid) {
+      case -1:  /* fork child failed */
+	break;
+      case 0:   /* i am child */
+	for ( i = 0; i < serv_sock_ind; i++ ) {
+	  close(serv_sock[i]);
+	}
+	setsignal(SIGCHLD, SIG_DFL);
+        setsignal(SIGHUP, SIG_DFL);
+        releasesignal(SIGCHLD);
+        releasesignal(SIGHUP);
+	error = proto_socks(&state);
+	if ( error == -1 ) {
+	  close(state.s);  /* may already be closed */
+	  exit(1);
+	}
+	relay(&state);
+	exit(0);
+      default: /* may be parent */
+	proclist_add(pid);
+	break;
+      }
+      close(state.s);
+      releasesignal(SIGHUP);
+      releasesignal(SIGCHLD);
+#ifdef USE_THREAD
+    } else {
+      error = proto_socks(&state);
+      if ( error == -1 ) {
+	close(state.s);  /* may already be closed */
+	continue;
+      }
+      relay(&state);
+    }
+#endif
+  }
 }
 
 int main(int ac, char **av)

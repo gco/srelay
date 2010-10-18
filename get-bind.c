@@ -136,7 +136,7 @@ get_rtaddrs(int addrs, struct sockaddr *sa, struct sockaddr **rti_info)
 #define	SEQ		9999	/* packet sequence dummy */
 #define MAXNUM_IF	256	/* max number of interfaces */
 
-int get_bind_addr(struct socks_req *req, struct addrinfo *ba)
+int get_bind_addr(bin_addr *dest, struct addrinfo *ba)
 {
 
   /* list interface name/address
@@ -165,9 +165,9 @@ int get_bind_addr(struct socks_req *req, struct addrinfo *ba)
 
 
   /* IPv6 routing is not implemented yet */
-  switch (req->dest.atype) {
+  switch (dest->atype) {
   case S5ATIPV4:
-    memcpy(&ia, &(req->dest.v4_addr), 4);
+    memcpy(&ia, &(dest->v4_addr), 4);
     break;
   case S5ATIPV6:
     return -1;
@@ -175,8 +175,8 @@ int get_bind_addr(struct socks_req *req, struct addrinfo *ba)
     memset(&hints, 0, sizeof(hints));
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_family = AF_INET;
-    memcpy(host, &req->dest.fqdn, req->dest.len_fqdn);
-    host[req->dest.len_fqdn] = '\0';
+    memcpy(host, &dest->fqdn, dest->len_fqdn);
+    host[dest->len_fqdn] = '\0';
     error = getaddrinfo(host, NULL, &hints, &res0);
     if (error) {
       return -1;
@@ -310,7 +310,7 @@ int get_bind_addr(struct socks_req *req, struct addrinfo *ba)
 
 #if defined(LINUX)
 
-int get_bind_addr(struct socks_req *req, struct addrinfo *ba)
+int get_bind_addr(bin_addr *dest, struct addrinfo *ba)
 {
   int s;
   int len;
@@ -346,9 +346,9 @@ int get_bind_addr(struct socks_req *req, struct addrinfo *ba)
   unsigned *d;
 
   /* IPv6 routing is not implemented yet */
-  switch (req->dest.atype) {
+  switch (dest->atype) {
   case S5ATIPV4:
-    memcpy(&ia, &(req->dest.v4_addr), 4);
+    memcpy(&ia, &(dest->v4_addr), 4);
     break;
   case S5ATIPV6:
     return -1;
@@ -356,8 +356,8 @@ int get_bind_addr(struct socks_req *req, struct addrinfo *ba)
     memset(&hints, 0, sizeof(hints));
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_family = AF_INET;
-    memcpy(host, &req->dest.fqdn, req->dest.len_fqdn);
-    host[req->dest.len_fqdn] = '\0';
+    memcpy(host, &dest->fqdn, dest->len_fqdn);
+    host[dest->len_fqdn] = '\0';
     error = getaddrinfo(host, NULL, &hints, &res0);
     if (error) {
       return -1;

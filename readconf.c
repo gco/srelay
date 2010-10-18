@@ -38,10 +38,10 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 char *skip   __P((char *));
 char *spell  __P((char *));
 int setport __P((u_int16_t *, char *));
-void add_entry __P((struct rtbl *, struct rtbl *, int));
+void add_entry __P((rtbl *, rtbl *, int));
 void parse_err __P((int, int, char *));
 int dot_to_masklen __P((char *));
-int str_to_addr __P((char *, struct bin_addr *));
+int str_to_addr __P((char *, bin_addr *));
 
 #define MAXLINE  1024
 #define SP        040
@@ -57,7 +57,7 @@ int str_to_addr __P((char *, struct bin_addr *));
 #define PORT_MIN  0
 #define PORT_MAX  65535
 
-struct rtbl *proxy_tbl;    /* proxy routing table */
+rtbl  *proxy_tbl;    /* proxy routing table */
 int    proxy_tbl_ind;         /* next entry indicator */
 
 /*
@@ -68,7 +68,7 @@ int    proxy_tbl_ind;         /* next entry indicator */
 	172.17.5.0/24               901             102.100.2.1 11080
 	172.17.8.0/16               any
 	0.0.0.0/0.0.0.0             0-32767         10.1.1.2    1080
-        
+
   note:
         port-low, port-hi includes specified ports.
 	port numbers must be port-low <= port-hi.
@@ -78,6 +78,10 @@ int    proxy_tbl_ind;         /* next entry indicator */
 	           ... so, single '-' means 0 to 65535 (?).
 	special port 'any' means 0-65535
 	no next-proxy means "direct" connect to destination.
+
+        destination port followed by /T, /U limits to relay TCP, UDP
+	respecive.
+
 */
 
 int readconf(FILE *fp)
@@ -87,14 +91,14 @@ int readconf(FILE *fp)
   int		n = 0;
   char		*any = "any";
   char		buf[MAXLINE];
-  struct rtbl	tmp;
-  struct rtbl	tmp_tbl[MAX_ROUTE];
-  struct rtbl	*new_proxy_tbl;
+  rtbl		tmp;
+  rtbl		tmp_tbl[MAX_ROUTE];
+  rtbl		*new_proxy_tbl;
   int		new_proxy_tbl_ind = 0;
   int           px;
 
   while (fp && fgets(buf, MAXLINE-1, fp) != NULL) {
-    memset(&tmp, 0, sizeof(struct rtbl));
+    memset(&tmp, 0, sizeof(rtbl));
     p = buf;
     n++;
 
@@ -102,7 +106,7 @@ int readconf(FILE *fp)
       continue;
     }
 
-    /* relay method */
+    /* relay method default */
     tmp.rl_meth = DIRECT;
 
     /* destination */
@@ -140,8 +144,30 @@ int readconf(FILE *fp)
       continue;
     }
 
+    /* relay IP PROTO default */
+    tmp.proto = ANY;
+
     /* dest port */
     tok = p; p = spell(p);
+    if ((q = strchr(tok, '/')) != NULL ) {
+      *q++ = '\0';  /* delimit */
+      len = strlen(q);
+      if ( len > 0 ) {
+	switch((int)*q) {
+	case 'T':
+	case 't':
+	  tmp.proto = TCP;
+	  break;
+	case 'U':
+	case 'u':
+	  tmp.proto = UDP;
+	  break;
+	default:
+	  tmp.proto = ANY;
+	  break;
+	}
+      }
+    }
     if ((q = strchr(tok, '-')) != NULL ) {
       if (tok == q) {           /* special case '-port-hi' */
 	tmp.port_l = PORT_MIN;
@@ -244,19 +270,19 @@ int readconf(FILE *fp)
   if ( new_proxy_tbl_ind <= 0 ) { /* no valid entries */
     parse_err(warn, n, "no valid entries found. using default.");
     new_proxy_tbl_ind = 1;
-    memset(tmp_tbl, 0, sizeof(struct rtbl));
+    memset(tmp_tbl, 0, sizeof(rtbl));
     tmp_tbl[0].port_l = PORT_MIN; tmp_tbl[0].port_h = PORT_MAX;
   }
 
   /* allocate suitable memory space to proxy_tbl */
-  new_proxy_tbl = (struct rtbl *)malloc(sizeof(struct rtbl)
+  new_proxy_tbl = (rtbl *)malloc(sizeof(rtbl)
 					* new_proxy_tbl_ind);
-  if ( new_proxy_tbl == (struct rtbl *)0 ) {
+  if ( new_proxy_tbl == (rtbl *)0 ) {
     /* malloc error */
     return(-1);
   }
   memcpy(new_proxy_tbl, tmp_tbl,
-	 sizeof(struct rtbl) * new_proxy_tbl_ind);
+	 sizeof(rtbl) * new_proxy_tbl_ind);
 
   if (proxy_tbl != NULL) { /* may holds previous table */
     free(proxy_tbl);
@@ -302,13 +328,13 @@ int setport(u_int16_t *to, char *str) {
   return 0;
 }
 
-void add_entry(struct rtbl *r, struct rtbl *t, int ind)
+void add_entry(rtbl *r, rtbl *t, int ind)
 {
   if (ind >= MAX_ROUTE) {
     /* error in add_entry */
     return;
   }
-  memcpy(&t[ind], r, sizeof(struct rtbl));
+  memcpy(&t[ind], r, sizeof(rtbl));
 }
 
 void parse_err(int sev, int line, char *msg)
@@ -316,7 +342,7 @@ void parse_err(int sev, int line, char *msg)
   msg_out(sev, "%s: line %d: %s\n", CONFIG, line, msg);
 }
 
-int str_to_addr(char *addr, struct bin_addr *dest)
+int str_to_addr(char *addr, bin_addr *dest)
 {
   char     *q;
   int	   len, i, c;
@@ -450,18 +476,12 @@ int dot_to_masklen(char *addr)
     mxs001.c-wind.com      bob     foobar
 
 */
-int readpasswd(FILE *fp, struct socks_req *req, struct user_pass *up)
+int readpasswd(FILE *fp, bin_addr *proxy, struct user_pass *up)
 {
   char     buf[MAXLINE];
   char     *p, *tok;
   int      len;
-  struct   bin_addr addr;
-
-  if (req->rtbl.rl_meth == DIRECT) {
-    /* This routine should be called in proxy context. */
-    /* but OK, thank you for calling me. */
-    return(0);
-  }
+  bin_addr addr;
 
   memset(up, 0, sizeof(struct user_pass));
 
@@ -477,7 +497,7 @@ int readpasswd(FILE *fp, struct socks_req *req, struct user_pass *up)
     if (str_to_addr(tok, &addr) != 0)  /* error */
       continue;
 
-    if (addr_comp(&req->rtbl.prx[0].proxy, &addr, 0) < 0) {
+    if (addr_comp(proxy, &addr, 0) < 0) {
       continue;
     }
 
@@ -534,7 +554,7 @@ pthread_t main_thread;
 char *config;
 /* dummy */
 
-int resolv_host(struct bin_addr *addr, char *p, int l)
+int resolv_host(bin_addr *addr, char *p, int l)
 {
   int    len, error;
   struct sockaddr_storage ss;
@@ -618,17 +638,16 @@ void dump_entry()
 }
 
 #if 0
-void checkpwd(char *user)
+void checkpwd(char *user, bin_addr *proxy, struct user_pass *up)
 {
   FILE *fp;
-  char pass[256];
 
   if ( (fp = fopen(PWDFILE, "r")) == NULL ) {
     fprintf(stderr, "cannot open %s\n", PWDFILE);
     return;
   }
-  if (readpasswd(fp, user, pass, 255) == 0) {
-    fprintf(stdout, "%s\n", pass);
+  if (readpasswd(fp, proxy, up) == 0) {
+    fprintf(stdout, "%s\n", up->pass);
   }
 
 }
