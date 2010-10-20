@@ -202,6 +202,34 @@ enum { norm=0, warn, crit };
 #define S5ACHAP       3
 #define S5ANOTACC     0xff
 
+/* SOCKSv5 request code */
+#define S5REQ_CONN    1
+#define S5REQ_BIND    2
+#define S5REQ_UDPA    3
+
+/* SOCKSv5 reply code */
+#define S5AGRANTED    0
+#define S5EGENERAL    1
+#define S5ENOTALOW    2
+#define S5ENETURCH    3 
+#define S5EHOSURCH    4
+#define S5ECREFUSE    5
+#define S5ETTLEXPR    6
+#define S5EUNSUPRT    7
+#define S5EUSATYPE    8
+#define S5EINVADDR    9
+
+/* SOCKSv4 request code */
+#define S4REQ_CONN    1
+#define S4REQ_BIND    2
+
+/* SOCKSv4 reply code */
+#define S4AGRANTED    90
+#define S4EGENERAL    91
+#define S4ECNIDENT    92
+#define S4EIVUSRID    93
+
+
 typedef struct {            /* binary format of SOCKS address */
   u_int8_t      atype;
   union {
@@ -262,10 +290,18 @@ typedef struct {
 } loginfo;
 
 typedef struct {
+  int		len;		/* socks udp header length */
+  u_int8_t	data[300];	/* socks udp header data */
+} UDPH;
+
+typedef struct {
   int		d;		/* downward socket */
   int		u;		/* upward socket */
+  HADDR		adn;		/* saved down side sockaddr */
+  HADDR		aup;		/* saved up side sockaddr */
   bin_addr	dest;		/* udp-relay proxy destination */
   u_int16_t	port;		/* udp-relay proxy dest port */
+  UDPH		sv;		/* saved socks udp header */
 } UDP_ATTR;
 
 typedef struct {
@@ -365,12 +401,14 @@ extern int readpasswd __P((FILE *, bin_addr *, struct user_pass *));
 
 /* relay.c */
 extern void relay __P((SOCKS_STATE *));
+extern void relay_udp __P((SOCKS_STATE *));
 
 /* socks.c */
 int wait_for_read __P((int, long));
 ssize_t timerd_read __P((int, u_char *, size_t, int, int));
 ssize_t timerd_write __P((int, u_char *, size_t, int));
 extern int proto_socks __P((SOCKS_STATE *));
+extern int decode_socks_udp __P((SOCKS_STATE *, u_char *));
 
 /* get-bind.c */
 int get_bind_addr __P((bin_addr *, struct addrinfo *));

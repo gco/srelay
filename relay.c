@@ -37,12 +37,18 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define TIMEOUTSEC   30
 
 typedef struct {
-  int from, to;
-  size_t nr, nw;
-  ssize_t nread, nwritten;
-  int oob;     /* flag OOB */
-  char buf[BUFSIZE];
+  int		from, to;
+  size_t	nr, nw;
+  ssize_t	nread, nwritten;
+  int		flags;		/* flag OOB, ... */
+  struct sockaddr *ss;		/* sockaddr used for recv / sendto */
+  socklen_t	len;		/* sockaddr len used for recv / sendto */
+  char		buf[BUFSIZE];	/* data */
+  int		top;		/* top position of udp data */
+  int		dir;		/* udp relay direction */
 } rlyinfo;
+
+enum { UP, DOWN };		/* udp relay direction */
 
 int resolv_client;
 
@@ -50,16 +56,14 @@ int resolv_client;
 void readn	 __P((rlyinfo *));
 void writen	 __P((rlyinfo *));
 ssize_t forward	 __P((rlyinfo *));
+ssize_t forward_udp __P((SOCKS_STATE *, rlyinfo *));
 int log_transfer __P((loginfo *));
 
 void readn(rlyinfo *ri)
 {
   ri->nread = 0;
-  if (ri->oob == 0) {
-    ri->nread = read(ri->from, ri->buf, ri->nr);
-  } else {
-    ri->nread = recvfrom(ri->from, ri->buf, ri->nr, MSG_OOB, NULL, 0);
-  }
+  ri->nread = recvfrom(ri->from, ri->buf+ri->top, ri->nr, ri->flags,
+		       ri->ss, &ri->len);
   if (ri->nread < 0) {
     msg_out(warn, "read: %m");
   }
@@ -68,11 +72,8 @@ void readn(rlyinfo *ri)
 void writen(rlyinfo *ri)
 {
   ri->nwritten = 0;
-  if (ri->oob == 0) {
-    ri->nwritten = write(ri->to, ri->buf, ri->nw);
-  } else {
-    ri->nwritten = sendto(ri->to, ri->buf, ri->nw, MSG_OOB, NULL, 0);
-  }
+  ri->nwritten = sendto(ri->to, ri->buf+ri->top, ri->nw, ri->flags,
+			ri->ss, ri->len);
   if (ri->nwritten <= 0) {
     msg_out(warn, "write: %m");
   }
@@ -94,6 +95,77 @@ ssize_t forward(rlyinfo *ri)
   return(ri->nwritten);
 }
 
+ssize_t forward_udp(SOCKS_STATE *state, rlyinfo *ri)
+{
+  settimer(TIMEOUTSEC);
+  if (state->rtbl.rl_meth == DIRECT) {
+    switch (ri->dir) {
+    case UP:
+      ri->top = 0;
+      readn(ri);
+      if (ri->nread > 0) {
+	/* (check and) save down-side sockaddr */
+	memcpy(&state->udp.adn.addr, ri->ss, ri->len);
+	state->udp.adn.len = ri->len;
+	/* decode socks udp header and set it to up-side sockaddr */
+	if (decode_socks_udp(state, (u_char *)ri->buf) < 0)
+	  return(-1);
+	/* shift buf top pointer by udp header length */
+	ri->top = state->udp.sv.len;
+	/* open upward socket unless opened yet */
+	if (state->udp.u < 0)
+	  if ((state->udp.u = socket(state->udp.aup.addr.ss_family,
+				     SOCK_DGRAM, IPPROTO_IP)) < 0)
+	    return(-1);
+	/* set destination(up-ward) sockaddr */
+	memcpy(ri->ss, &state->udp.aup.addr, state->udp.aup.len);
+	ri->len = state->udp.aup.len;
+	/* set write data len */
+	if (ri->nread - state->udp.sv.len < 0)
+	  return(-1);
+	ri->nw = ri->nread - state->udp.sv.len;
+      }
+      break;
+    case DOWN:
+      if (state->udp.sv.len <= 0)
+	return(-1);
+      /* shift buf top pointer by udp header length */
+      ri->top = state->udp.sv.len;
+      readn(ri);
+      if(ri->nread > 0) {
+	/* (check and) save up-ward sockaddr */
+	memcpy(&state->udp.aup.addr, ri->ss, ri->len);
+	state->udp.aup.len = ri->len;
+	/* prepend socks udp header to buffer */
+	memcpy(ri->buf, state->udp.sv.data, state->udp.sv.len);
+	/* set destination(down-ward) sockaddr */
+	memcpy(ri->ss, &state->udp.adn.addr, state->udp.adn.len);
+	ri->len = state->udp.adn.len;
+	/* reset buf top */
+	ri->top = 0;
+	/* set write data len */
+	ri->nw = ri->nread + state->udp.sv.len;
+      }
+      break;
+    }
+    writen(ri);
+  } else {
+    /* PROXY just relay */
+    /* XXXXX  not yet */
+  }
+  settimer(0);
+  if (ri->nread == 0)
+    /* none the EOF case of UDP but assume innormal */
+    return(0);
+  if (ri->nread < 0)
+    return(-1);
+  return(ri->nwritten);
+}
+
+#ifndef MAX
+# define MAX(a,b)  (((a)>(b))?(a):(b))
+#endif
+
 u_long idle_timeout = IDLE_TIMEOUT;
 
 void relay(SOCKS_STATE *state)
@@ -109,16 +181,19 @@ void relay(SOCKS_STATE *state)
   u_long   timeout_count;
 
   memset(&ri, 0, sizeof(ri));
+  ri.ss = (struct sockaddr *)NULL;
+  ri.len = 0;
   ri.nr = BUFSIZE;
 
-  nfds = (state->r > state->s ? state->r : state->s);
+  nfds = MAX(state->r, state->s);
   setsignal(SIGALRM, timeout);
   gettimeofday(&state->li->start, &tz);
-  state->li->bc = state->li->upl = state->li->dnl = 0; ri.oob = 0; timeout_count = 0;
+  state->li->bc = state->li->upl = state->li->dnl = 0;
+  ri.flags = 0; timeout_count = 0;
   for (;;) {
     FD_ZERO(&rfds);
     FD_SET(state->s, &rfds); FD_SET(state->r, &rfds);
-    if (ri.oob == 0) {
+    if (ri.flags == 0) {
       FD_ZERO(&xfds);
       FD_SET(state->s, &xfds); FD_SET(state->r, &xfds);
     }
@@ -129,7 +204,7 @@ void relay(SOCKS_STATE *state)
     sfd = select(nfds+1, &rfds, 0, &xfds, &tv);
     if (sfd > 0) {
       if (FD_ISSET(state->r, &rfds)) {
-	ri.from = state->r; ri.to = state->s; ri.oob = 0;
+	ri.from = state->r; ri.to = state->s; ri.flags = 0;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
 	else
@@ -138,7 +213,7 @@ void relay(SOCKS_STATE *state)
 	FD_CLR(state->r, &rfds);
       }
       if (FD_ISSET(state->r, &xfds)) {
-	ri.from = state->r; ri.to = state->s; ri.oob = 1;
+	ri.from = state->r; ri.to = state->s; ri.flags = MSG_OOB;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
 	else
@@ -146,7 +221,7 @@ void relay(SOCKS_STATE *state)
 	FD_CLR(state->r, &xfds);
       }
       if (FD_ISSET(state->s, &rfds)) {
-	ri.from = state->s; ri.to = state->r; ri.oob = 0;
+	ri.from = state->s; ri.to = state->r; ri.flags = 0;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
 	else
@@ -154,7 +229,7 @@ void relay(SOCKS_STATE *state)
 	FD_CLR(state->s, &rfds);
       }
       if (FD_ISSET(state->s, &xfds)) {
-	ri.from = state->s; ri.to = state->r; ri.oob = 1;
+	ri.from = state->s; ri.to = state->r; ri.flags = MSG_OOB;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
 	else
@@ -179,6 +254,111 @@ void relay(SOCKS_STATE *state)
 
   close(state->r);
   close(state->s);
+}
+
+void relay_udp(SOCKS_STATE *state)
+{
+  fd_set   rfds;
+  int      nfds, sfd;
+  struct   timeval tv;
+  struct   timezone tz;
+  ssize_t  wc;
+  rlyinfo  ri;
+  int      done;
+  u_long   max_count = idle_timeout;
+  u_long   timeout_count;
+  struct sockaddr_storage ss;
+
+  memset(&ri, 0, sizeof(ri));
+  ri.ss = (struct sockaddr *)&ss;
+  ri.flags = 0;
+  ri.nr = BUFSIZE-sizeof(UDPH);
+
+  setsignal(SIGALRM, timeout);
+  gettimeofday(&state->li->start, &tz);
+  state->li->bc = state->li->upl = state->li->dnl = 0;
+  timeout_count = 0;
+  for (;;) {
+    FD_ZERO(&rfds);
+    FD_SET(state->s, &rfds); FD_SET(state->udp.d, &rfds);
+    nfds = MAX(state->s, state->udp.d);
+    if (state->r >= 0) {
+      FD_SET(state->r, &rfds);
+      nfds = MAX(nfds, state->r);
+    }
+    if (state->udp.u >= 0) {
+      FD_SET(state->udp.u, &rfds);
+      nfds = MAX(nfds, state->udp.u);
+    }
+
+    done = 0;
+    /* idle timeout related setting. */
+    tv.tv_sec = 60; tv.tv_usec = 0;   /* unit = 1 minute. */
+    tz.tz_minuteswest = 0; tz.tz_dsttime = 0;
+    sfd = select(nfds+1, &rfds, 0, 0, &tv);
+    if (sfd > 0) {
+      /* UDP channels */
+      if (FD_ISSET(state->udp.d, &rfds)) {
+	ri.from = state->udp.d; ri.to = state->udp.u;
+	ri.dir = UP;
+	if ((wc = forward_udp(state, &ri)) <= 0)
+	  done++;
+	else
+	  state->li->bc += wc; state->li->upl += wc;
+	FD_CLR(state->udp.d, &rfds);
+      }
+      if (FD_ISSET(state->udp.u, &rfds)) {
+	ri.from = state->udp.u; ri.to = state->udp.d;
+	ri.dir = DOWN;
+	if ((wc = forward_udp(state, &ri)) <= 0)
+	  done++;
+	else
+	  state->li->bc += wc; state->li->dnl += wc;
+	FD_CLR(state->udp.d, &rfds);
+      }
+      /* packets on TCP channel may indicate
+	 termination of UDP assoc.
+      */
+      if (FD_ISSET(state->s, &rfds)) {
+	ri.from = state->s; ri.to = state->r; ri.flags = 0;
+	if ((wc = forward(&ri)) <= 0)
+	  done++;
+	/*
+	else
+	  state->li->bc += wc; state->li->upl += wc;
+	*/
+	FD_CLR(state->s, &rfds);
+      }
+      if (FD_ISSET(state->r, &rfds)) {
+	ri.from = state->r; ri.to = state->s; ri.flags = 0;
+	if ((wc = forward(&ri)) <= 0)
+	  done++;
+	/*
+	else
+	  state->li->bc += wc; state->li->dnl += wc;
+	*/
+	FD_CLR(state->r, &rfds);
+      }
+
+    } else if (sfd < 0) {
+      if (errno != EINTR)
+	break;
+    } else { /* sfd == 0 */
+      if (max_count != 0) {
+	timeout_count++;
+	if (timeout_count > max_count)
+	  break;
+      }
+    }
+  }
+
+  gettimeofday(&state->li->end, &tz);
+  log_transfer(state->li);
+
+  close(state->s);
+  close(state->r);
+  close(state->udp.d);
+  close(state->udp.u);
 }
 
 int log_transfer(loginfo *li)

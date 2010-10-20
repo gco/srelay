@@ -34,29 +34,6 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "srelay.h"
 
-#define S5REQ_CONN    1
-#define S5REQ_BIND    2
-#define S5REQ_UDPA    3
-
-#define S5AGRANTED    0
-#define S5EGENERAL    1
-#define S5ENOTALOW    2
-#define S5ENETURCH    3 
-#define S5EHOSURCH    4
-#define S5ECREFUSE    5
-#define S5ETTLEXPR    6
-#define S5EUNSUPRT    7
-#define S5EUSATYPE    8
-#define S5EINVADDR    9
-
-#define S4REQ_CONN    1
-#define S4REQ_BIND    2
-
-#define S4AGRANTED    90
-#define S4EGENERAL    91
-#define S4ECNIDENT    92
-#define S4EIVUSRID    93
-
 #define TIMEOUTSEC    30
 
 #define GEN_ERR_REP(s, v) \
@@ -117,7 +94,7 @@ int s5auth_s __P((int));
 int s5auth_s_rep __P((int, int));
 int s5auth_c __P((int, bin_addr *));
 int connect_to_http __P((SOCKS_STATE *));
-int forward_connect __P((SOCKS_STATE *, int *));
+int forward_connect __P((SOCKS_STATE *));
 int bind_sock __P((int, SOCKS_STATE *, struct addrinfo *));
 int do_bind __P((int, struct addrinfo *, u_int16_t));
 #ifdef SO_BINDTODEVICE
@@ -175,7 +152,7 @@ int proto_socks(SOCKS_STATE *state)
   }
 
   if (r >= 0) {
-    state->tbl_ind = lookup_tbl(state);
+    lookup_tbl(state);
     log_request(state);
 
     if (state->rtbl.rl_meth == DIRECT) {
@@ -185,12 +162,13 @@ int proto_socks(SOCKS_STATE *state)
     }
   }
 
-  if (r >= 0) {
+  if (r >= 0 && state->r >= 0) {
     setsockopt(state->r, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof on);
 #if defined(FREEBSD) || defined(MACOSX)
     setsockopt(state->r, SOL_SOCKET, SO_REUSEPORT, (char *)&on, sizeof on);
 #endif
-    setsockopt(state->r, IPPROTO_TCP, TCP_NODELAY, (char *)&on, sizeof on);
+    if (state->req != S5REQ_UDPA)
+      setsockopt(state->r, IPPROTO_TCP, TCP_NODELAY, (char *)&on, sizeof on);
 
     /* get upstream-side socket/peer name */
     len = sizeof(struct sockaddr_storage);
@@ -366,7 +344,7 @@ int proto_socks5(SOCKS_STATE *state)
  */
 int socks_direct_conn(SOCKS_STATE *state)
 {
-  int    cs, acs = 0;
+  int	 cs, acs;
   int    len;
   struct addrinfo ba;
   struct sockaddr_storage ss;
@@ -374,20 +352,21 @@ int socks_direct_conn(SOCKS_STATE *state)
   int    save_errno = 0;
 
   /* process direct connect/bind to destination */
+  state->r = cs = acs = -1;
 
   /* process by_command request */
   switch (state->req) {   /* request */
   case S5REQ_CONN:
-    cs = forward_connect(state, &save_errno);
-    if (cs >= 0) {
+    error = forward_connect(state);
+    if (error >= 0) {
       len = sizeof(ss);
-      if (getsockname(cs, (struct sockaddr *)&ss, (socklen_t *)&len) < 0) {
+      if (getsockname(state->r, (struct sockaddr *)&ss, (socklen_t *)&len) < 0) {
 	save_errno = errno;
-	close(cs);
-	cs = -1;
+	close(state->r);
+	state->r = -1;
       }
     }
-    if (cs < 0 || save_errno != 0) {
+    if (error < 0 || save_errno != 0) {
       /* any socket error */
       switch (state->ver) {
       case 0x04:
@@ -423,7 +402,6 @@ int socks_direct_conn(SOCKS_STATE *state)
       GEN_ERR_REP(state->s, state->ver);
       return(-1);
     }
-    acs = -1;
     acs = socket(ba.ai_family, ba.ai_socktype, ba.ai_protocol);
     if (acs < 0) {
       /* socket error */
@@ -470,7 +448,7 @@ int socks_direct_conn(SOCKS_STATE *state)
       close(acs);
       return(-1);
     }
-      
+
     len = sizeof(ss);
     if ((cs = accept(acs, (struct sockaddr *)&ss, (socklen_t *)&len)) < 0) {
       GEN_ERR_REP(state->s, state->ver);
@@ -479,6 +457,7 @@ int socks_direct_conn(SOCKS_STATE *state)
     }
     close(acs); /* accept socket is not needed
 		   any more, for current socks spec. */
+    state->r = cs;   /* set forwarding socket */
     /* sock name is in ss */
     /* TODO:
      *  we must check ss against state->dest here for security reason
@@ -487,6 +466,10 @@ int socks_direct_conn(SOCKS_STATE *state)
     break;
 
   case S5REQ_UDPA:
+    /* on UDP assoc of DIRECT method, state->r will not used */
+    /* initialize UDP transport sockets */
+    state->udp.d = state->udp.u = -1;
+    /* create UDP socket on same I/F as the request was catched */
     memcpy(&ss, &state->li->myc.addr, sizeof(ss));
     if ((cs = socket(ss.ss_family, SOCK_DGRAM, IPPROTO_IP)) >= 0) {
       switch (ss.ss_family) {
@@ -505,7 +488,7 @@ int socks_direct_conn(SOCKS_STATE *state)
 	return(-1);
       }
       /* XXXXXXXX */
-      /* get my socket name to acquire an actual bound port number */
+      /* get my socket name to acquire an actual bound port */
       len = sizeof(ss);
       if (getsockname(cs, (struct sockaddr *)&ss, (socklen_t *)&len) == -1) {
 	/* getsockname failed */
@@ -513,8 +496,8 @@ int socks_direct_conn(SOCKS_STATE *state)
 	close(cs);
 	return(-1);
       }
-      /* set downward soket */
       /* ss is actual socket name here for usig positive reply */
+      /* set downward soket */
       state->udp.d = cs;
     } else {
       GEN_ERR_REP(state->s, state->ver);
@@ -536,10 +519,6 @@ int socks_direct_conn(SOCKS_STATE *state)
     close(cs);
     return(-1);
   }
-  state->r = cs;   /* set forwarding socket */
-  /* on UDP assoc, cs (state->r) is not forwarding socket, but is
-     receiving socket from UDP clients.
-   */
   return(0);
 }
 
@@ -564,10 +543,9 @@ int proxy_connect(SOCKS_STATE *state)
     return(-1);
   }
 
-  state->r = forward_connect(state, &save_errno);
-  if (state->r < 0 || save_errno != 0) {
+  r = forward_connect(state);
+  if (r < 0 || save_errno != 0) {
     GEN_ERR_REP(state->s, state->ver);
-    state->r = -1;
     return(-1);
   }
 
@@ -585,7 +563,6 @@ int proxy_connect(SOCKS_STATE *state)
     }
     if (r < 0) {
       GEN_ERR_REP(state->s, state->ver);
-      state->r = -1;
       return(-1);
     }
     /* not break, just continue */
@@ -599,6 +576,7 @@ int proxy_connect(SOCKS_STATE *state)
   default:
     break;
   }
+  state->r = -1;
   return(-1);
 
 }
@@ -624,7 +602,7 @@ int connect_to_socks(SOCKS_STATE *state, int pproto)
 	  /* send request success */
 	  r = socks_proxy_reply(5, state);
 	  if (r == 0) {
-	    return(state->r);
+	    return(r);
 	  }
 	}
       }
@@ -639,7 +617,7 @@ int connect_to_socks(SOCKS_STATE *state, int pproto)
 	/* send request success */
 	r = socks_proxy_reply(4, state);
 	if (r == 0) {
-	  return(state->r);
+	  return(r);
 	}
       }
     }
@@ -1177,7 +1155,7 @@ int connect_to_http(SOCKS_STATE *state)
 	getsockname(state->r, (struct sockaddr *)&ss, (socklen_t *)&len);
 	/* is this required ?? */
 	POSITIVE_REP(state->s, state->ver, (struct sockaddr *)&ss);
-	return(state->r);
+	return(0);
       }
     }
   }
@@ -1188,18 +1166,16 @@ int connect_to_http(SOCKS_STATE *state)
 /*
   forward_connect:
       just resolve host and connect to her.
-      return connected socket/error(-1);
+      return ok(0)/error(-1);
  */
 
-int forward_connect(SOCKS_STATE *state, int *err)
+int forward_connect(SOCKS_STATE *state)
 {
-  int    cs;
+  int    cs = -1;
   struct host_info dest;
   struct addrinfo hints, *res, *res0;
   struct sockaddr_storage ss;
   int    error = 0;
-
-  cs = -1;
 
   switch(state->rtbl.rl_meth) {
   case DIRECT:
@@ -1220,6 +1196,14 @@ int forward_connect(SOCKS_STATE *state, int *err)
   /* string addr => addrinfo */
   memset(&hints, 0, sizeof(hints));
   hints.ai_socktype = SOCK_STREAM;
+  if (same_interface) {
+    memcpy(&ss, &state->li->myc.addr, sizeof(ss));
+    hints.ai_family = ss.ss_family;
+    /* XXXXX
+      this may cause getaddrinfo returns same address
+      family info as clients connected. Is this correct ?
+    */
+  }
   error = getaddrinfo(dest.host, dest.port, &hints, &res0);
   if (error) { /* getaddrinfo returns error>0 when error */
     return -1;
@@ -1227,16 +1211,19 @@ int forward_connect(SOCKS_STATE *state, int *err)
 
   for (res = res0; res; res = res->ai_next) {
     error = 0;
-    cs = socket(res->ai_family,
-		res->ai_socktype, res->ai_protocol);
+    cs = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
     if ( cs < 0 ) {
       /* socket error */
       continue;
     }
 
 #ifdef SO_BINDTODEVICE
+    /*
+      bindtodevice may case error at bind call if device
+      config has conflicts with same_interface option ???
+     */
     if (bindtodevice && do_bindtodevice(cs, bindtodevice) < 0) {
-      save_errno = errno;
+      error = errno;
       close(cs);
       continue;
     }
@@ -1245,7 +1232,6 @@ int forward_connect(SOCKS_STATE *state, int *err)
     if (same_interface) {
       /* bind the outgoing socket to the same interface
 	 as the inbound client */
-      memcpy(&ss, &state->li->myc.addr, sizeof(ss));
       switch (ss.ss_family) {
       case AF_INET:
 	((struct sockaddr_in*) &ss)->sin_port = 0;
@@ -1270,16 +1256,15 @@ int forward_connect(SOCKS_STATE *state, int *err)
     }
     break;
   }
-
   freeaddrinfo(res0);
 
   msg_out(norm, "Forward connect to %s:%s rc=%d",
 	  dest.host, dest.port, error);
-  if (err != NULL)
-    *err = error;
-
   state->r = cs;
-  return(cs);
+  if (cs >= 0)
+    return(0);
+  else
+    return(-1);
 }
 
 int bind_sock(int s, SOCKS_STATE *state, struct addrinfo *ai)
@@ -1380,6 +1365,90 @@ static int do_bindtodevice(int cs, char *dev)
   return(rc);
 }
 #endif
+
+/*
+  decode_socks_udp:
+	decode socks udp header.
+ */
+int decode_socks_udp(SOCKS_STATE *state, u_char *buf)
+{
+  int	len;
+  struct addrinfo hints, *res;
+  char host[256];
+
+#define _sa_  ((struct sockaddr_in *)&state->udp.aup.addr)
+#define _sa6_ ((struct sockaddr_in6 *)&state->udp.aup.addr)
+
+  len = 0;
+  state->udp.sv.len = 0;
+  if (buf[2] != 0x00) {
+    /* we do not support fragment */
+    return(-1);
+  }
+
+  switch (buf[3]) { /* address type */
+  case S5ATIPV4:
+#ifdef HAVE_SOCKADDR_SA_LEN
+    _sa_->sin_len = sizeof(struct sockaddr_in);
+#endif
+    _sa_->sin_family = AF_INET;
+    memcpy(&_sa_->sin_addr, buf+4, sizeof(struct in_addr));
+    state->udp.aup.len = sizeof(struct sockaddr_in);
+    _sa_->sin_port = htons(buf[8] * 0x100 + buf[9]);
+    state->udp.sv.len = 10;
+    break;
+
+  case S5ATIPV6:
+#ifdef HAVE_SOCKADDR_SA_LEN
+    _sa6_->sin6_len = sizeof(struct sockaddr_in6);
+#endif
+    _sa6_->sin6_family = AF_INET6;
+    memcpy(&(_sa6_->sin6_addr), buf+4, sizeof(struct in6_addr));
+    state->udp.aup.len = sizeof(struct sockaddr_in6);
+    _sa6_->sin6_scope_id = 0;
+    _sa6_->sin6_port = htons(buf[20] * 0x100 + buf[21]);
+    state->udp.sv.len = 22;
+    break;
+
+  case S5ATFQDN:
+    len = buf[4] & 0xFF;   /* length */
+    if (len < 0 || len > 255) {  /* will not occur */
+      return(-1);
+    }
+    memcpy(host, buf+5, len);
+    host[len] = 0x00;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_socktype = SOCK_DGRAM;
+    if (getaddrinfo(host, 0, &hints, &res) > 0 ) {
+      /* error */
+      return(-1);
+    }
+    memcpy(&state->udp.aup.addr, res->ai_addr, res->ai_addrlen);
+    state->udp.aup.len = res->ai_addrlen;
+    switch (res->ai_family) {
+    case AF_INET:
+      _sa_->sin_port = htons(buf[5+len] * 0x100 + buf[5+len+1]);
+      break;
+    case AF_INET6:
+      _sa6_->sin6_port = htons(buf[5+len] * 0x100 + buf[5+len+1]);
+      break;
+    default:
+      /* error */
+      break;
+    }
+    state->udp.sv.len = 5+len+2;
+    freeaddrinfo(res);
+    break;
+  default:
+    /* error */
+    return(-1);
+  }
+  /* save socks udp header */
+  memcpy(state->udp.sv.data, buf, state->udp.sv.len);
+  return(0);
+#undef _sa_
+#undef _sa6_
+}
 
 /*
   wait_for_read:
@@ -1559,9 +1628,10 @@ int lookup_tbl(SOCKS_STATE *state)
 
   if (match) {
     memcpy(&(state->rtbl), &(proxy_tbl[i]), sizeof(rtbl));
-    return(i);
+    state->tbl_ind = i;
   } else
-    return(proxy_tbl_ind);
+    state->tbl_ind = proxy_tbl_ind;
+  return(0);
 }
 
 /*

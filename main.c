@@ -319,7 +319,11 @@ int serv_loop()
 	  close(state.s);  /* may already be closed */
 	  exit(1);
 	}
-	relay(&state);
+	if (state.req == S5REQ_UDPA) {
+	  relay_udp(&state);
+	} else {
+	  relay(&state);
+	}
 	exit(0);
       default: /* may be parent */
 	proclist_add(pid);
@@ -335,7 +339,11 @@ int serv_loop()
 	close(state.s);  /* may already be closed */
 	continue;
       }
-      relay(&state);
+      if (state.req == S5REQ_UDPA) {
+	relay_udp(&state);
+      } else {
+	relay(&state);
+      }
     }
 #endif
   }
