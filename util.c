@@ -70,7 +70,7 @@ void msg_out(int severity, const char *fmt, ...)
   }
 
   va_start(ap, fmt);
-  if (!forcesyslog && isatty(fileno(stderr))) {
+  if (fg && !forcesyslog && isatty(fileno(stderr))) {
     vfprintf(stderr, fmt, ap);
   } else {
     vsyslog(priority, fmt, ap);

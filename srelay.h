@@ -102,7 +102,7 @@ typedef    u_int32_t    socklen_t;
 # endif
 #endif
 
-#define version  "srelay 0.4.8b1 2010/10/18 (Tomo.M)"
+#define version  "srelay 0.4.8b2 2010/10/20 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"
@@ -361,6 +361,7 @@ extern int same_interface;
 #ifdef HAVE_LIBWRAP
 extern int use_tcpwrap;
 #endif /* HAVE_LIBWRAP */
+extern int fg;		/* foreground operation */
 
 /* from init.c */
 extern char **str_serv_sock;
