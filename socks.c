@@ -162,21 +162,23 @@ int proto_socks(SOCKS_STATE *state)
     }
   }
 
-  if (r >= 0 && state->r >= 0) {
-    setsockopt(state->r, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof on);
+  if (r >= 0) {
+    if (state->r >= 0) {
+      /* state->req != UDPA or proxy_connect */
+      setsockopt(state->r, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof on);
 #if defined(FREEBSD) || defined(MACOSX)
-    setsockopt(state->r, SOL_SOCKET, SO_REUSEPORT, (char *)&on, sizeof on);
+      setsockopt(state->r, SOL_SOCKET, SO_REUSEPORT, (char *)&on, sizeof on);
 #endif
-    if (state->req != S5REQ_UDPA)
       setsockopt(state->r, IPPROTO_TCP, TCP_NODELAY, (char *)&on, sizeof on);
 
-    /* get upstream-side socket/peer name */
-    len = sizeof(struct sockaddr_storage);
-    getsockname(state->r, (struct sockaddr *)&state->li->mys.addr, (socklen_t *)&len);
-    state->li->mys.len = len;
-    len = sizeof(struct sockaddr_storage);
-    getpeername(state->r, (struct sockaddr *)&state->li->prs.addr, (socklen_t *)&len);
-    state->li->prs.len = len;
+      /* get upstream-side socket/peer name */
+      len = sizeof(struct sockaddr_storage);
+      getsockname(state->r, (struct sockaddr *)&state->li->mys.addr, (socklen_t *)&len);
+      state->li->mys.len = len;
+      len = sizeof(struct sockaddr_storage);
+      getpeername(state->r, (struct sockaddr *)&state->li->prs.addr, (socklen_t *)&len);
+      state->li->prs.len = len;
+    }
 
     return(0);   /* 0: OK */
   }
@@ -480,7 +482,7 @@ int socks_direct_conn(SOCKS_STATE *state)
 	((struct sockaddr_in6*) &ss)->sin6_port = 0;
 	break;
       }
-      if (bind(cs, (struct sockaddr*)&ss, sizeof(ss)) < 0) {
+      if (bind(cs, (struct sockaddr*)&ss, state->li->myc.len) < 0) {
 	/* bind error */
 	close(cs);
 	GEN_ERR_REP(state->s, state->ver);

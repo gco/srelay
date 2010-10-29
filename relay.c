@@ -113,10 +113,13 @@ ssize_t forward_udp(SOCKS_STATE *state, rlyinfo *ri)
 	/* shift buf top pointer by udp header length */
 	ri->top = state->udp.sv.len;
 	/* open upward socket unless opened yet */
-	if (state->udp.u < 0)
+	/* XXXX little bit ambiguous ?? */
+	if (state->udp.u < 0) {
 	  if ((state->udp.u = socket(state->udp.aup.addr.ss_family,
 				     SOCK_DGRAM, IPPROTO_IP)) < 0)
 	    return(-1);
+	  ri->to = state->udp.u;
+	}
 	/* set destination(up-ward) sockaddr */
 	memcpy(ri->ss, &state->udp.aup.addr, state->udp.aup.len);
 	ri->len = state->udp.aup.len;
