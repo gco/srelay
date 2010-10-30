@@ -57,6 +57,8 @@ void readn	 __P((rlyinfo *));
 void writen	 __P((rlyinfo *));
 ssize_t forward	 __P((rlyinfo *));
 ssize_t forward_udp __P((SOCKS_STATE *, rlyinfo *));
+void relay_tcp __P((SOCKS_STATE *));
+void relay_udp __P((SOCKS_STATE *));
 int log_transfer __P((loginfo *));
 
 void readn(rlyinfo *ri)
@@ -187,13 +189,24 @@ ssize_t forward_udp(SOCKS_STATE *state, rlyinfo *ri)
   return(ri->nwritten);
 }
 
+/*
+ *  relay: switch relay tcp/udp.
+*/
+void relay(SOCKS_STATE *state)
+{
+  if (state->req == S5REQ_UDPA)
+    relay_udp(state);
+  else
+    relay_tcp(state);
+}
+
 #ifndef MAX
 # define MAX(a,b)  (((a)>(b))?(a):(b))
 #endif
 
 u_long idle_timeout = IDLE_TIMEOUT;
 
-void relay(SOCKS_STATE *state)
+void relay_tcp(SOCKS_STATE *state)
 {
   fd_set   rfds, xfds;
   int      nfds, sfd;
