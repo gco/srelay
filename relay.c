@@ -102,11 +102,17 @@ ssize_t forward_udp(SOCKS_STATE *state, rlyinfo *ri)
     switch (ri->dir) {
     case UP:
       ri->top = 0;
+      ri->len = sizeof(struct sockaddr_storage);
       readn(ri);
       if (ri->nread > 0) {
-	/* (check and) save down-side sockaddr */
+	/* (check and) save down-ward sockaddr */
 	memcpy(&state->udp.adn.addr, ri->ss, ri->len);
 	state->udp.adn.len = ri->len;
+
+	/* copy down-ward sockaddr to loginfo */
+	memcpy(&state->li->prc.addr, &state->udp.adn.addr, state->udp.adn.len);
+	state->li->prc.len = state->udp.adn.len;
+
 	/* decode socks udp header and set it to up-side sockaddr */
 	if (decode_socks_udp(state, (u_char *)ri->buf) < 0)
 	  return(-1);
@@ -123,6 +129,11 @@ ssize_t forward_udp(SOCKS_STATE *state, rlyinfo *ri)
 	/* set destination(up-ward) sockaddr */
 	memcpy(ri->ss, &state->udp.aup.addr, state->udp.aup.len);
 	ri->len = state->udp.aup.len;
+
+	/* copy destination(up-ward) sockaddr to loginfo */
+	memcpy(&state->li->prs.addr, &state->udp.aup.addr, state->udp.aup.len);
+	state->li->prs.len = state->udp.aup.len;
+
 	/* set write data len */
 	if (ri->nread - state->udp.sv.len < 0)
 	  return(-1);
@@ -134,16 +145,27 @@ ssize_t forward_udp(SOCKS_STATE *state, rlyinfo *ri)
 	return(-1);
       /* shift buf top pointer by udp header length */
       ri->top = state->udp.sv.len;
+      ri->len = sizeof(struct sockaddr_storage);
       readn(ri);
       if(ri->nread > 0) {
 	/* (check and) save up-ward sockaddr */
 	memcpy(&state->udp.aup.addr, ri->ss, ri->len);
 	state->udp.aup.len = ri->len;
+
+	/* copy up-ward sockaddr to loginfo */
+	memcpy(&state->li->prs.addr, &state->udp.aup.addr, state->udp.aup.len);
+	state->li->prs.len = state->udp.aup.len;
+
 	/* prepend socks udp header to buffer */
 	memcpy(ri->buf, state->udp.sv.data, state->udp.sv.len);
 	/* set destination(down-ward) sockaddr */
 	memcpy(ri->ss, &state->udp.adn.addr, state->udp.adn.len);
 	ri->len = state->udp.adn.len;
+
+	/* copy down-ward sockaddr to loginfo */
+	memcpy(&state->li->prc.addr, &state->udp.adn.addr, state->udp.adn.len);
+	state->li->prc.len = state->udp.adn.len;
+
 	/* reset buf top */
 	ri->top = 0;
 	/* set write data len */
@@ -310,7 +332,7 @@ void relay_udp(SOCKS_STATE *state)
 	  state->li->bc += wc; state->li->upl += wc;
 	FD_CLR(state->udp.d, &rfds);
       }
-      if (FD_ISSET(state->udp.u, &rfds)) {
+      if (state->udp.u >= 0 && FD_ISSET(state->udp.u, &rfds)) {
 	ri.from = state->udp.u; ri.to = state->udp.d;
 	ri.dir = DOWN;
 	if ((wc = forward_udp(state, &ri)) <= 0)
@@ -332,7 +354,7 @@ void relay_udp(SOCKS_STATE *state)
 	*/
 	FD_CLR(state->s, &rfds);
       }
-      if (FD_ISSET(state->r, &rfds)) {
+      if (FD_ISSET(state->r >= 0 && state->r, &rfds)) {
 	ri.from = state->r; ri.to = state->s; ri.flags = 0;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
@@ -342,7 +364,8 @@ void relay_udp(SOCKS_STATE *state)
 	*/
 	FD_CLR(state->r, &rfds);
       }
-
+      if (done > 0)
+	break;
     } else if (sfd < 0) {
       if (errno != EINTR)
 	break;
@@ -356,12 +379,20 @@ void relay_udp(SOCKS_STATE *state)
   }
 
   gettimeofday(&state->li->end, &tz);
+  if (state->udp.u >= 0) {
+    /* getsockname for logging */
+    state->li->mys.len = sizeof(struct sockaddr_storage);
+    getsockname(state->udp.u, (struct sockaddr*)&state->li->mys.addr,
+					(socklen_t *)&state->li->mys.len);
+  }
   log_transfer(state->li);
 
   close(state->s);
-  close(state->r);
+  if (state->r >= 0)
+    close(state->r);
   close(state->udp.d);
-  close(state->udp.u);
+  if (state->udp.u >= 0)
+    close(state->udp.u);
 }
 
 int log_transfer(loginfo *li)
