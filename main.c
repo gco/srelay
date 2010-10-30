@@ -145,7 +145,6 @@ int validate_access(char *client_addr, char *client_name)
 
 #ifdef USE_THREAD
 pthread_mutex_t mutex_select;
-pthread_mutex_t mutex_gh0;
 #endif
 
 int serv_loop()
@@ -319,11 +318,7 @@ int serv_loop()
 	  close(state.s);  /* may already be closed */
 	  exit(1);
 	}
-	if (state.req == S5REQ_UDPA) {
-	  relay_udp(&state);
-	} else {
-	  relay(&state);
-	}
+	relay(&state);
 	exit(0);
       default: /* may be parent */
 	proclist_add(pid);
@@ -339,11 +334,7 @@ int serv_loop()
 	close(state.s);  /* may already be closed */
 	continue;
       }
-      if (state.req == S5REQ_UDPA) {
-	relay_udp(&state);
-      } else {
-	relay(&state);
-      }
+      relay(&state);
     }
 #endif
   }
@@ -362,11 +353,6 @@ int main(int ac, char **av)
   rlim_t max_fd = (rlim_t)MAX_FD;
   rlim_t save_fd = 0;
 #endif
-
-  /* try changing working directory */
-  if ( chdir(WORKDIR0) != 0 )
-    if ( chdir(WORKDIR1) != 0 )
-      msg_out(norm, "giving up chdir to workdir");
 
 #ifdef USE_THREAD
   threading = 1;
@@ -539,6 +525,11 @@ int main(int ac, char **av)
   }
 #endif
 
+  /* try changing working directory */
+  if ( chdir(WORKDIR0) != 0 )
+    if ( chdir(WORKDIR1) != 0 )
+      msg_out(norm, "giving up chdir to workdir");
+
   if (!fg) {
     /* force stdin/out/err allocate to /dev/null */
     fclose(stdin);
@@ -631,7 +622,6 @@ int main(int ac, char **av)
     setreuid(0, PROCUID);
 
     pthread_mutex_init(&mutex_select, NULL);
-    /*    pthread_mutex_init(&mutex_gh0, NULL); */
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
