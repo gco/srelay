@@ -102,7 +102,7 @@ typedef    u_int32_t    socklen_t;
 # endif
 #endif
 
-#define version  "srelay 0.4.8b2 2010/10/20 (Tomo.M)"
+#define version  "srelay 0.4.8b3 2010/10/30 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"
@@ -157,8 +157,6 @@ typedef    u_int32_t    socklen_t;
 # include <pthread.h>
 
 extern pthread_t main_thread;  /* holding the main thread ID */
-extern pthread_mutex_t mutex_select;
-extern pthread_mutex_t mutex_gh0;
 extern int threading;
 #endif
 
@@ -402,7 +400,6 @@ extern int readpasswd __P((FILE *, bin_addr *, struct user_pass *));
 
 /* relay.c */
 extern void relay __P((SOCKS_STATE *));
-extern void relay_udp __P((SOCKS_STATE *));
 
 /* socks.c */
 int wait_for_read __P((int, long));
