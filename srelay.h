@@ -266,7 +266,7 @@ typedef struct {
     u_int16_t	pport;		/* proxy port (HBO) */
     int		pproto;		/* proxy protocol (0:socks, 1:HTTP, ..) */
   } prx[PROXY_MAX];
-} rtbl;
+} ROUTE_INFO;
 
 typedef struct {
   struct sockaddr_storage addr;
@@ -274,18 +274,24 @@ typedef struct {
 } HADDR;
 
 typedef struct {
-  HADDR  mys;			/* my upstream socket name */
-  HADDR  myc;			/* my downstream socket name */
-  HADDR  prs;			/* upstream peer socket name */
-  HADDR  prc;			/* downstream peer socket name */
-  char   cl_addr[NI_MAXHOST];	/* client (downstream peer) IP */
-  char   cl_name[NI_MAXHOST];	/* client (downstream peer) NAME */
-  u_long upl;
-  u_long dnl;
-  u_long bc;
-  struct timeval start;
-  struct timeval end;
-} loginfo;
+  char	addr[NI_MAXHOST];	/* client (downstream peer) IP */
+  char	name[NI_MAXHOST];	/* client (downstream peer) NAME */
+} CL_INFO;
+
+typedef struct {
+  HADDR	mys;			/* my upstream socket name */
+  HADDR	myc;			/* my downstream socket name */
+  HADDR	prs;			/* upstream peer socket name */
+  HADDR	prc;			/* downstream peer socket name */
+} SOCK_INFO;
+
+typedef struct {
+  u_long upl;			/* upload byte count */
+  u_long dnl;			/* download byte count */
+  u_long bc;			/* total byte count */
+  struct timeval start;		/* transfer start timestamp */
+  struct timeval end;		/* transfer end timestamp */
+} LOGINFO;
 
 typedef struct {
   int		len;		/* socks udp header length */
@@ -295,26 +301,29 @@ typedef struct {
 typedef struct {
   int		d;		/* downward socket */
   int		u;		/* upward socket */
-  HADDR		adn;		/* saved down side sockaddr */
-  HADDR		aup;		/* saved up side sockaddr */
+  SOCK_INFO	si;		/* udp-relay socket info */
   bin_addr	dest;		/* udp-relay proxy destination */
   u_int16_t	port;		/* udp-relay proxy dest port */
   UDPH		sv;		/* saved socks udp header */
 } UDP_ATTR;
 
 typedef struct {
-  int		s;		/* client socket */
-  int		req;		/* request CONN/BIND/UDP */
   int		ver;		/* client socks version (4,5) */
-  int		r;		/* forwarding socket */
+  int		req;		/* request CONN/BIND/UDP */
   bin_addr 	dest;		/* destination address */
   u_int16_t	port;		/* destination port (host byte order) */
   u_int8_t	u_len;		/* user name length (socks v4) */
   char		user[USER_PASS_MAX];  /* user name (socks v4) */ 
+  UDP_ATTR	*udp;		/* proxy info used for udp-relay */
+} SOCKS_REQ;
+
+typedef struct {
+  int		s;		/* client socket */
+  int		r;		/* forwarding socket */
+  SOCKS_REQ	sr;		/* socks protocol request */
   int		tbl_ind;	/* proxy table indicator */
-  rtbl		rtbl;		/* selected proxy routing */
-  UDP_ATTR	udp;		/* proxy info used for udp-relay */
-  loginfo	*li;		/* data for logging */
+  ROUTE_INFO	rtbl;		/* selected proxy routing */
+  SOCK_INFO	*si;		/* socket names */
 } SOCKS_STATE;
 
 struct user_pass {
@@ -370,7 +379,7 @@ extern fd_set allsock;
 extern int sig_queue[];
 
 /* from readconf.c */
-extern rtbl *proxy_tbl;
+extern ROUTE_INFO *proxy_tbl;
 extern int proxy_tbl_ind;
 
 /* from relay.c */
@@ -406,7 +415,6 @@ int wait_for_read __P((int, long));
 ssize_t timerd_read __P((int, u_char *, size_t, int, int));
 ssize_t timerd_write __P((int, u_char *, size_t, int));
 extern int proto_socks __P((SOCKS_STATE *));
-extern int decode_socks_udp __P((SOCKS_STATE *, u_char *));
 
 /* get-bind.c */
 int get_bind_addr __P((bin_addr *, struct addrinfo *));

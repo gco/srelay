@@ -38,7 +38,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 char *skip   __P((char *));
 char *spell  __P((char *));
 int setport __P((u_int16_t *, char *));
-void add_entry __P((rtbl *, rtbl *, int));
+void add_entry __P((ROUTE_INFO *, ROUTE_INFO *, int));
 void parse_err __P((int, int, char *));
 int dot_to_masklen __P((char *));
 int str_to_addr __P((char *, bin_addr *));
@@ -57,7 +57,7 @@ int str_to_addr __P((char *, bin_addr *));
 #define PORT_MIN  0
 #define PORT_MAX  65535
 
-rtbl  *proxy_tbl;    /* proxy routing table */
+ROUTE_INFO  *proxy_tbl;    /* proxy routing table */
 int    proxy_tbl_ind;         /* next entry indicator */
 
 /*
@@ -91,14 +91,14 @@ int readconf(FILE *fp)
   int		n = 0;
   char		*any = "any";
   char		buf[MAXLINE];
-  rtbl		tmp;
-  rtbl		tmp_tbl[MAX_ROUTE];
-  rtbl		*new_proxy_tbl;
+  ROUTE_INFO	tmp;
+  ROUTE_INFO	tmp_tbl[MAX_ROUTE];
+  ROUTE_INFO	*new_proxy_tbl;
   int		new_proxy_tbl_ind = 0;
   int           px;
 
   while (fp && fgets(buf, MAXLINE-1, fp) != NULL) {
-    memset(&tmp, 0, sizeof(rtbl));
+    memset(&tmp, 0, sizeof(ROUTE_INFO));
     p = buf;
     n++;
 
@@ -270,19 +270,19 @@ int readconf(FILE *fp)
   if ( new_proxy_tbl_ind <= 0 ) { /* no valid entries */
     parse_err(warn, n, "no valid entries found. using default.");
     new_proxy_tbl_ind = 1;
-    memset(tmp_tbl, 0, sizeof(rtbl));
+    memset(tmp_tbl, 0, sizeof(ROUTE_INFO));
     tmp_tbl[0].port_l = PORT_MIN; tmp_tbl[0].port_h = PORT_MAX;
   }
 
   /* allocate suitable memory space to proxy_tbl */
-  new_proxy_tbl = (rtbl *)malloc(sizeof(rtbl)
+  new_proxy_tbl = (ROUTE_INFO *)malloc(sizeof(ROUTE_INFO)
 					* new_proxy_tbl_ind);
-  if ( new_proxy_tbl == (rtbl *)0 ) {
+  if ( new_proxy_tbl == (ROUTE_INFO *)0 ) {
     /* malloc error */
     return(-1);
   }
   memcpy(new_proxy_tbl, tmp_tbl,
-	 sizeof(rtbl) * new_proxy_tbl_ind);
+	 sizeof(ROUTE_INFO) * new_proxy_tbl_ind);
 
   if (proxy_tbl != NULL) { /* may holds previous table */
     free(proxy_tbl);
@@ -328,13 +328,13 @@ int setport(u_int16_t *to, char *str) {
   return 0;
 }
 
-void add_entry(rtbl *r, rtbl *t, int ind)
+void add_entry(ROUTE_INFO *r, ROUTE_INFO *t, int ind)
 {
   if (ind >= MAX_ROUTE) {
     /* error in add_entry */
     return;
   }
-  memcpy(&t[ind], r, sizeof(rtbl));
+  memcpy(&t[ind], r, sizeof(ROUTE_INFO));
 }
 
 void parse_err(int sev, int line, char *msg)

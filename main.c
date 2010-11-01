@@ -40,7 +40,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 void show_version  __P((void));
 void usage	   __P((void));
 int serv_loop	   __P((void));
-int validate_access __P((char *, char *));
+int validate_access __P((CL_INFO *));
 
 char *config = CONFIG;
 char *ident = "srelay";
@@ -113,7 +113,7 @@ void usage()
   exit(1);
 }
 
-int validate_access(char *client_addr, char *client_name)
+int validate_access(CL_INFO *client)
 {
   int stat = 0;
 #ifdef HAVE_LIBWRAP
@@ -121,12 +121,12 @@ int validate_access(char *client_addr, char *client_name)
 
   if ( use_tcpwrap ) {
     /* proc ident pattern */
-    stat = hosts_ctl(ident, client_name, client_addr, STRING_UNKNOWN);
+    stat = hosts_ctl(ident, client->name, client->addr, STRING_UNKNOWN);
     /* IP.PORT pattern */
     for (i = 0; i < serv_sock_ind; i++) {
       if (str_serv_sock[i] != NULL && str_serv_sock[i][0] != 0) {
 	stat |= hosts_ctl(str_serv_sock[i],
-			  client_name, client_addr, STRING_UNKNOWN);
+			  client->name, client->addr, STRING_UNKNOWN);
       }
     }
   } else {
@@ -137,7 +137,7 @@ int validate_access(char *client_addr, char *client_name)
 #endif /* HAVE_LIBWRAP */
 
   if (stat < 1) {
-    msg_out(warn, "%s[%s] access denied.", client_name, client_addr);
+    msg_out(warn, "%s[%s] access denied.", client->name, client->addr);
   }
 
   return stat;
@@ -151,7 +151,8 @@ int serv_loop()
 {
 
   SOCKS_STATE	state;
-  loginfo	li;
+  SOCK_INFO	si;
+  CL_INFO	client;
 
   int    cs;
   struct sockaddr_storage cl;
@@ -161,8 +162,9 @@ int serv_loop()
   pid_t  pid;
 
   memset(&state, 0, sizeof(state));
-  memset(&li, 0, sizeof(li));
-  state.li = &li;
+  memset(&si, 0, sizeof(si));
+  memset(&client, 0, sizeof(client));
+  state.si = &si;
 
 #ifdef USE_THREAD
   if (threading) {
@@ -263,20 +265,20 @@ int serv_loop()
 #endif
 
     error = getnameinfo((struct sockaddr *)&cl, len,
-			li.cl_addr, sizeof(li.cl_addr),
+			client.addr, sizeof(client.addr),
 			NULL, 0,
 			NI_NUMERICHOST);
     if (resolv_client) {
       error = getnameinfo((struct sockaddr *)&cl, len,
-			  li.cl_name, sizeof(li.cl_name),
+			  client.name, sizeof(client.name),
 			  NULL, 0, 0);
-      msg_out(norm, "%s[%s] connected", li.cl_name, li.cl_addr);
+      msg_out(norm, "%s[%s] connected", client.name, client.addr);
     } else {
-      msg_out(norm, "%s connected", li.cl_addr);
-      strncpy(li.cl_name, li.cl_addr, sizeof(li.cl_name));
+      msg_out(norm, "%s connected", client.addr);
+      strncpy(client.name, client.addr, sizeof(client.name));
     }
 
-    i = validate_access(li.cl_addr, li.cl_name);
+    i = validate_access(&client);
     if (i < 1) {
       /* access denied */
       close(cs);
@@ -289,11 +291,11 @@ int serv_loop()
 
     /* get downstream-side socket/peer name */
     len = sizeof(struct sockaddr_storage);
-    getsockname(cs, (struct sockaddr*)&li.myc.addr, (socklen_t *)&len);
-    li.myc.len = len;
+    getsockname(cs, (struct sockaddr*)&si.myc.addr, (socklen_t *)&len);
+    si.myc.len = len;
     len = sizeof(struct sockaddr_storage);
-    getpeername(cs, (struct sockaddr*)&li.prc.addr, (socklen_t *)&len);
-    li.prc.len = len;
+    getpeername(cs, (struct sockaddr*)&si.prc.addr, (socklen_t *)&len);
+    si.prc.len = len;
 
 
 #ifdef USE_THREAD
