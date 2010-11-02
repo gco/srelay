@@ -334,6 +334,9 @@ int serv_loop()
       error = proto_socks(&state);
       if ( error == -1 ) {
 	close(state.s);  /* may already be closed */
+	/* udp may be dynamically allocated */
+	if (state.sr.udp != NULL)
+	  free(state.sr.udp);
 	continue;
       }
       relay(&state);

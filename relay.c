@@ -167,7 +167,7 @@ ssize_t forward_udp(rlyinfo *ri, UDP_ATTR *udp, int method)
   }
   settimer(0);
   if (ri->nread == 0)
-    /* none the EOF case of UDP but assume innormal */
+    /* none the EOF case of UDP */
     return(0);
   if (ri->nread < 0)
     return(-1);
@@ -409,10 +409,11 @@ void relay_udp(SOCKS_STATE *state)
     sfd = select(nfds+1, &rfds, 0, 0, &tv);
     if (sfd > 0) {
       /* UDP channels */
+      /* in case of UDP, wc == 0 does not mean EOF (??) */
       if (FD_ISSET(state->sr.udp->d, &rfds)) {
 	ri.from = state->sr.udp->d; ri.to = state->sr.udp->u;
 	ri.dir = UP;
-	if ((wc = forward_udp(&ri, state->sr.udp, state->rtbl.rl_meth)) <= 0)
+	if ((wc = forward_udp(&ri, state->sr.udp, state->rtbl.rl_meth)) < 0)
 	  done++;
 	else
 	  li.bc += wc; li.upl += wc;
@@ -421,7 +422,7 @@ void relay_udp(SOCKS_STATE *state)
       if (state->sr.udp->u >= 0 && FD_ISSET(state->sr.udp->u, &rfds)) {
 	ri.from = state->sr.udp->u; ri.to = state->sr.udp->d;
 	ri.dir = DOWN;
-	if ((wc = forward_udp(&ri, state->sr.udp, state->rtbl.rl_meth)) <= 0)
+	if ((wc = forward_udp(&ri, state->sr.udp, state->rtbl.rl_meth)) < 0)
 	  done++;
 	else
 	  li.bc += wc; li.dnl += wc;
@@ -434,20 +435,12 @@ void relay_udp(SOCKS_STATE *state)
 	ri.from = state->s; ri.to = state->r; ri.flags = 0;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
-	/*
-	else
-	  li.bc += wc; li.upl += wc;
-	*/
 	FD_CLR(state->s, &rfds);
       }
       if (FD_ISSET(state->r >= 0 && state->r, &rfds)) {
 	ri.from = state->r; ri.to = state->s; ri.flags = 0;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
-	/*
-	else
-	  li.bc += wc; li.dnl += wc;
-	*/
 	FD_CLR(state->r, &rfds);
       }
       if (done > 0)
