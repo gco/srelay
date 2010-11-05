@@ -105,7 +105,7 @@ ssize_t forward_udp(rlyinfo *ri, UDP_ATTR *udp, int method)
     switch (ri->dir) {
     case UP:
       ri->top = 0;
-      ri->len = sizeof(struct sockaddr_storage);
+      ri->len = SS_LEN;
       readn(ri);
       if (ri->nread > 0) {
 	/* (check and) save down-ward sockaddr */
@@ -120,7 +120,7 @@ ssize_t forward_udp(rlyinfo *ri, UDP_ATTR *udp, int method)
 	/* open upward socket unless opened yet */
 	/* XXXX little bit ambiguous ?? */
 	if (udp->u < 0) {
-	  if ((udp->u = socket(udp->si.prs.addr.ss_family,
+	  if ((udp->u = socket(udp->si.prs.addr.sa.sa_family,
 				     SOCK_DGRAM, IPPROTO_IP)) < 0)
 	    return(-1);
 	  ri->to = udp->u;
@@ -140,7 +140,7 @@ ssize_t forward_udp(rlyinfo *ri, UDP_ATTR *udp, int method)
 	return(-1);
       /* shift buf top pointer by udp header length */
       ri->top = udp->sv.len;
-      ri->len = sizeof(struct sockaddr_storage);
+      ri->len = SS_LEN;
       readn(ri);
       if(ri->nread > 0) {
 	/* (check and) save up-ward sockaddr */
@@ -184,8 +184,7 @@ int decode_socks_udp(UDP_ATTR *udp, u_char *buf)
   struct addrinfo hints, *res;
   char host[256];
 
-#define _sa_  ((struct sockaddr_in *)&udp->si.prs.addr)
-#define _sa6_ ((struct sockaddr_in6 *)&udp->si.prs.addr)
+#define _addr_  udp->si.prs.addr
 
   len = 0;
   udp->sv.len = 0;
@@ -197,24 +196,24 @@ int decode_socks_udp(UDP_ATTR *udp, u_char *buf)
   switch (buf[3]) { /* address type */
   case S5ATIPV4:
 #ifdef HAVE_SOCKADDR_SA_LEN
-    _sa_->sin_len = sizeof(struct sockaddr_in);
+    _addr_.v4.sin_len = V4_LEN;
 #endif
-    _sa_->sin_family = AF_INET;
-    memcpy(&_sa_->sin_addr, buf+4, sizeof(struct in_addr));
-    udp->si.prs.len = sizeof(struct sockaddr_in);
-    _sa_->sin_port = htons(buf[8] * 0x100 + buf[9]);
+    _addr_.v4.sin_family = AF_INET;
+    memcpy(&_addr_.v4.sin_addr, buf+4, sizeof(struct in_addr));
+    udp->si.prs.len = V4_LEN;
+    _addr_.v4.sin_port = htons(buf[8] * 0x100 + buf[9]);
     udp->sv.len = 10;
     break;
 
   case S5ATIPV6:
 #ifdef HAVE_SOCKADDR_SA_LEN
-    _sa6_->sin6_len = sizeof(struct sockaddr_in6);
+    _addr_.v6.sin6_len = V6_LEN;
 #endif
-    _sa6_->sin6_family = AF_INET6;
-    memcpy(&(_sa6_->sin6_addr), buf+4, sizeof(struct in6_addr));
-    udp->si.prs.len = sizeof(struct sockaddr_in6);
-    _sa6_->sin6_scope_id = 0;
-    _sa6_->sin6_port = htons(buf[20] * 0x100 + buf[21]);
+    _addr_.v6.sin6_family = AF_INET6;
+    memcpy(&(_addr_.v6.sin6_addr), buf+4, sizeof(struct in6_addr));
+    udp->si.prs.len = V6_LEN;
+    _addr_.v6.sin6_scope_id = 0;
+    _addr_.v6.sin6_port = htons(buf[20] * 0x100 + buf[21]);
     udp->sv.len = 22;
     break;
 
@@ -235,10 +234,10 @@ int decode_socks_udp(UDP_ATTR *udp, u_char *buf)
     udp->si.prs.len = res->ai_addrlen;
     switch (res->ai_family) {
     case AF_INET:
-      _sa_->sin_port = htons(buf[5+len] * 0x100 + buf[5+len+1]);
+      _addr_.v4.sin_port = htons(buf[5+len] * 0x100 + buf[5+len+1]);
       break;
     case AF_INET6:
-      _sa6_->sin6_port = htons(buf[5+len] * 0x100 + buf[5+len+1]);
+      _addr_.v6.sin6_port = htons(buf[5+len] * 0x100 + buf[5+len+1]);
       break;
     default:
       /* error */
@@ -254,8 +253,7 @@ int decode_socks_udp(UDP_ATTR *udp, u_char *buf)
   /* save socks udp header */
   memcpy(udp->sv.data, buf, udp->sv.len);
   return(0);
-#undef _sa_
-#undef _sa6_
+#undef _addr_
 }
 
 /*
@@ -459,14 +457,14 @@ void relay_udp(SOCKS_STATE *state)
 
   gettimeofday(&li.end, &tz);
   /* getsockname for logging */
-  state->sr.udp->si.myc.len = sizeof(struct sockaddr_storage);
+  state->sr.udp->si.myc.len = SS_LEN;
   getsockname(state->sr.udp->d,
-	      (struct sockaddr*)&state->sr.udp->si.myc.addr,
+	      &state->sr.udp->si.myc.addr.sa,
 	      (socklen_t *)&state->sr.udp->si.myc.len);
   if (state->sr.udp->u >= 0) {
-    state->sr.udp->si.mys.len = sizeof(struct sockaddr_storage);
+    state->sr.udp->si.mys.len = SS_LEN;
     getsockname(state->sr.udp->u,
-		(struct sockaddr*)&state->sr.udp->si.mys.addr,
+		&state->sr.udp->si.mys.addr.sa,
 		(socklen_t *)&state->sr.udp->si.mys.len);
   }
 
@@ -502,19 +500,19 @@ int log_transfer(SOCK_INFO *si, LOGINFO *li)
   *myc_ip = *mys_ip = *prc_ip = *prs_ip = '\0';
   *myc_port = *mys_port = *prc_port = *prs_port = '\0';
 
-  error = getnameinfo((struct sockaddr *)&si->myc.addr, si->myc.len,
+  error = getnameinfo(&si->myc.addr.sa, si->myc.len,
 		      myc_ip, sizeof(myc_ip),
 		      myc_port, sizeof(myc_port),
 		      NI_NUMERICHOST|NI_NUMERICSERV);
-  error = getnameinfo((struct sockaddr *)&si->mys.addr, si->mys.len,
+  error = getnameinfo(&si->mys.addr.sa, si->mys.len,
 		      mys_ip, sizeof(mys_ip),
 		      mys_port, sizeof(mys_port),
 		      NI_NUMERICHOST|NI_NUMERICSERV);
-  error = getnameinfo((struct sockaddr *)&si->prc.addr, si->prc.len,
+  error = getnameinfo(&si->prc.addr.sa, si->prc.len,
 		      prc_ip, sizeof(prc_ip),
 		      prc_port, sizeof(prc_port),
 		      NI_NUMERICHOST|NI_NUMERICSERV);
-  error = getnameinfo((struct sockaddr *)&si->prs.addr, si->prs.len,
+  error = getnameinfo(&si->prs.addr.sa, si->prs.len,
 		      prs_ip, sizeof(prs_ip),
 		      prs_port, sizeof(prs_port),
 		      NI_NUMERICHOST|NI_NUMERICSERV);

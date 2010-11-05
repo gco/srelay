@@ -69,14 +69,14 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
       break;\
     }\
 
-
+/* ss: pointer of struct sockaddr_storage */
 #define SET_SOCK_PORT(ss, port) \
-  switch (((struct sockaddr *)(ss))->sa_family) {	\
+  switch (((struct sockaddr *)(ss))->sa_family) {\
   case AF_INET:\
-    ((struct sockaddr_in*)(ss))->sin_port = (port);	\
+    ((struct sockaddr_in*)(ss))->sin_port = (port);\
     break;\
   case AF_INET6:\
-    ((struct sockaddr_in6*)(ss))->sin6_port = (port);	\
+    ((struct sockaddr_in6*)(ss))->sin6_port = (port);\
     break;\
   }\
 
@@ -98,8 +98,8 @@ int proxy_connect __P((SOCKS_STATE *));
 int build_socks_request __P((SOCKS_STATE *, u_char *, int));
 int connect_to_socks __P((SOCKS_STATE *, int));
 int socks_proxy_reply __P((int, SOCKS_STATE *));
-int socks_rep __P((int , int , int , struct sockaddr *));
-int build_socks_reply __P((int, int, struct sockaddr *, u_char *));
+int socks_rep __P((int , int , int , SockAddr *));
+int build_socks_reply __P((int, int, SockAddr *, u_char *));
 int s5auth_s __P((int));
 int s5auth_s_rep __P((int, int));
 int s5auth_c __P((int, bin_addr *));
@@ -182,11 +182,11 @@ int proto_socks(SOCKS_STATE *state)
       setsockopt(state->r, IPPROTO_TCP, TCP_NODELAY, (char *)&on, sizeof on);
 
       /* get upstream-side socket/peer name */
-      len = sizeof(struct sockaddr_storage);
-      getsockname(state->r, (struct sockaddr *)&state->si->mys.addr, (socklen_t *)&len);
+      len = SS_LEN;
+      getsockname(state->r, &state->si->mys.addr.sa, (socklen_t *)&len);
       state->si->mys.len = len;
-      len = sizeof(struct sockaddr_storage);
-      getpeername(state->r, (struct sockaddr *)&state->si->prs.addr, (socklen_t *)&len);
+      len = SS_LEN;
+      getpeername(state->r, &state->si->prs.addr.sa, (socklen_t *)&len);
       state->si->prs.len = len;
     }
 
@@ -356,12 +356,12 @@ int proto_socks5(SOCKS_STATE *state)
  */
 int socks_direct_conn(SOCKS_STATE *state)
 {
-  int	 cs, acs;
-  int    len;
+  int	cs, acs;
+  int	len;
   struct addrinfo ba;
-  struct sockaddr_storage ss;
-  int    error = 0;
-  int    save_errno = 0;
+  SockAddr ss;
+  int	error = 0;
+  int	save_errno = 0;
 
   /* process direct connect/bind to destination */
   state->r = cs = acs = -1;
@@ -371,8 +371,8 @@ int socks_direct_conn(SOCKS_STATE *state)
   case S5REQ_CONN:
     error = forward_connect(state);
     if (error >= 0) {
-      len = sizeof(ss);
-      if (getsockname(state->r, (struct sockaddr *)&ss, (socklen_t *)&len) < 0) {
+      len = SS_LEN;
+      if (getsockname(state->r, &ss.sa, (socklen_t *)&len) < 0) {
 	save_errno = errno;
 	close(state->r);
 	state->r = -1;
@@ -405,9 +405,9 @@ int socks_direct_conn(SOCKS_STATE *state)
 
   case S5REQ_BIND:
     memset(&ba, 0, sizeof(ba));
-    memset(&ss, 0, sizeof(ss));
-    ba.ai_addr = (struct sockaddr *)&ss;
-    ba.ai_addrlen = sizeof(ss);
+    memset(&ss.ss, 0, SS_LEN);
+    ba.ai_addr = &ss.sa;
+    ba.ai_addrlen = SS_LEN;
     /* just one address can be stored */
     error = get_bind_addr(&state->sr.dest, &ba);
     if (error) {
@@ -437,18 +437,18 @@ int socks_direct_conn(SOCKS_STATE *state)
     listen(acs, 64);
     /* get my socket name again to acquire an
        actual listen port number */
-    len = sizeof(ss);
-    if (getsockname(acs, (struct sockaddr *)&ss, (socklen_t *)&len) == -1) {
+    len = SS_LEN;
+    if (getsockname(acs, &ss.sa, (socklen_t *)&len) == -1) {
       /* getsockname failed */
       GEN_ERR_REP(state->s, state->sr.ver);
       close(acs);
       return(-1);
     }
-    memcpy(&state->si->mys.addr, &ss, len);
+    memcpy(&state->si->mys.addr.ss, &ss, len);
     state->si->mys.len = len;
 
     /* first reply for bind request */
-    POSITIVE_REP(state->s, state->sr.ver, (struct sockaddr *)&ss);
+    POSITIVE_REP(state->s, state->sr.ver, &ss);
     if ( error < 0 ) {
       /* could not reply */
       close(state->s);
@@ -461,8 +461,8 @@ int socks_direct_conn(SOCKS_STATE *state)
       return(-1);
     }
 
-    len = sizeof(ss);
-    if ((cs = accept(acs, (struct sockaddr *)&ss, (socklen_t *)&len)) < 0) {
+    len = SS_LEN;
+    if ((cs = accept(acs, &ss.sa, (socklen_t *)&len)) < 0) {
       GEN_ERR_REP(state->s, state->sr.ver);
       close(acs);
       return(-1);
@@ -490,8 +490,7 @@ int socks_direct_conn(SOCKS_STATE *state)
     /* save the socket name of requester's TCP socket into UDP_ATTR
      * for checking lator.
      */
-    memcpy(&state->sr.udp->si.prc.addr, &state->si->prc.addr,
-	   sizeof(struct sockaddr_storage));
+    memcpy(&state->sr.udp->si.prc.addr, &state->si->prc.addr, SS_LEN);
     SET_SOCK_PORT(&state->sr.udp->si.prc.addr, 0);
     if (state->sr.port != 0)
       SET_SOCK_PORT(&state->sr.udp->si.prc.addr, htons(state->sr.port));
@@ -499,10 +498,10 @@ int socks_direct_conn(SOCKS_STATE *state)
     /* initialize UDP transport sockets */
     state->sr.udp->d = state->sr.udp->u = -1;
     /* create UDP socket on the same I/F as the request was reached */
-    memcpy(&ss, &state->si->myc.addr, sizeof(ss));
-    if ((cs = socket(ss.ss_family, SOCK_DGRAM, IPPROTO_IP)) >= 0) {
-      SET_SOCK_PORT(&ss, 0);
-      if (bind(cs, (struct sockaddr*)&ss, state->si->myc.len) < 0) {
+    memcpy(&ss.ss, &state->si->myc.addr.ss, SS_LEN);
+    if ((cs = socket(ss.sa.sa_family, SOCK_DGRAM, IPPROTO_IP)) >= 0) {
+      SET_SOCK_PORT(&ss.ss, 0);
+      if (bind(cs, &ss.sa, state->si->myc.len) < 0) {
 	/* bind error */
 	close(cs);
 	GEN_ERR_REP(state->s, state->sr.ver);
@@ -511,8 +510,8 @@ int socks_direct_conn(SOCKS_STATE *state)
       }
       /* XXXXXXXX */
       /* get my socket name to acquire an actual bound port */
-      len = sizeof(ss);
-      if (getsockname(cs, (struct sockaddr *)&ss, (socklen_t *)&len) == -1) {
+      len = SS_LEN;
+      if (getsockname(cs, &ss.sa, (socklen_t *)&len) == -1) {
 	/* getsockname failed */
 	GEN_ERR_REP(state->s, state->sr.ver);
 	close(cs);
@@ -534,7 +533,7 @@ int socks_direct_conn(SOCKS_STATE *state)
     return(-1);
   }
 
-  POSITIVE_REP(state->s, state->sr.ver, (struct sockaddr *)&ss);
+  POSITIVE_REP(state->s, state->sr.ver, &ss);
   if ( error < 0 ) {
     /* could not reply */
     close(state->s);
@@ -747,13 +746,12 @@ int build_socks_request(SOCKS_STATE *state, u_char *buf, int ver)
 */
 int socks_proxy_reply(int v, SOCKS_STATE *state)
 {
-  int     r, c, len;
-  u_char  buf[512];
-  struct  addrinfo hints, *res, *res0;
-  int     error;
-  int found = 0;
-  struct sockaddr_storage ss;
-#define _sa_ ((struct sockaddr_in *)&ss)
+  int	r, c, len;
+  u_char buf[512];
+  struct addrinfo hints, *res, *res0;
+  int	error;
+  int	found = 0;
+  SockAddr ss;
 
   switch (state->sr.req) {
   case S5REQ_CONN:
@@ -770,7 +768,7 @@ int socks_proxy_reply(int v, SOCKS_STATE *state)
   }
 
   while (c-- > 0) {
-    memset(&ss, 0, sizeof(ss));
+    memset(&ss, 0, SS_LEN);
     /* read server reply */
     r = timerd_read(state->r, buf, sizeof buf, TIMEOUTSEC, 0);
 
@@ -798,10 +796,10 @@ int socks_proxy_reply(int v, SOCKS_STATE *state)
       case 5:
 	if ( buf[1] == S4AGRANTED ) {
 	  /* translate reply v4->v5 */
-	  _sa_->sin_family = AF_INET;
-	  memcpy(&(_sa_->sin_addr), &buf[4], 4);
-	  memcpy(&(_sa_->sin_port), &buf[2], 2);
-	  r = socks_rep(state->s, 5, S5AGRANTED, (struct sockaddr *)&ss);
+	  ss.v4.sin_family = AF_INET;
+	  memcpy(&(ss.v4.sin_addr), &buf[4], 4);
+	  memcpy(&(ss.v4.sin_port), &buf[2], 2);
+	  r = socks_rep(state->s, 5, S5AGRANTED, &ss);
 	} else {
 	  r = -1;
 	}
@@ -824,22 +822,22 @@ int socks_proxy_reply(int v, SOCKS_STATE *state)
 	if ( buf[1] == S5AGRANTED ) {
 	  switch (buf[3]) {   /* address type */
 	  case S5ATIPV4:
-	    _sa_->sin_family = AF_INET;
-	    memcpy(&(_sa_->sin_addr), &buf[4], 4);
-	    memcpy(&(_sa_->sin_port), &buf[8], 2);
+	    ss.v4.sin_family = AF_INET;
+	    memcpy(&(ss.v4.sin_addr), &buf[4], 4);
+	    memcpy(&(ss.v4.sin_port), &buf[8], 2);
 	    break;
 	  case S5ATIPV6:
 	    /* basically v4 cannot handle IPv6 address */
 	    /* make fake IPv4 to forcing reply */
-	    _sa_->sin_family = AF_INET;
-	    memcpy(&(_sa_->sin_addr), &buf[16], 4);
-	    memcpy(&(_sa_->sin_port), &buf[20], 2);
+	    ss.v4.sin_family = AF_INET;
+	    memcpy(&(ss.v4.sin_addr), &buf[16], 4);
+	    memcpy(&(ss.v4.sin_port), &buf[20], 2);
 	    break;
 	  case S5ATFQDN:
 	  default:
-	    _sa_->sin_family = AF_INET;
+	    ss.v4.sin_family = AF_INET;
 	    len = buf[4] & 0xff;
-	    memcpy(&(_sa_->sin_port), &buf[5+len], 2);
+	    memcpy(&(ss.v4.sin_port), &buf[5+len], 2);
 	    buf[5+len] = '\0';
 	    memset(&hints, 0, sizeof(hints));
 	    hints.ai_socktype = SOCK_STREAM;
@@ -849,7 +847,7 @@ int socks_proxy_reply(int v, SOCKS_STATE *state)
 	      for (res = res0; res; res = res->ai_next) {
 		if (res->ai_socktype != AF_INET)
 		  continue;
-		memcpy(&(_sa_->sin_addr),
+		memcpy(&(ss.v4.sin_addr),
 		       &(((struct sockaddr_in *)res->ai_addr)->sin_addr),
 		       sizeof(struct in_addr));
 		found++; break;
@@ -858,11 +856,11 @@ int socks_proxy_reply(int v, SOCKS_STATE *state)
 	    }
 	    if (!found) {
 	      /* set fake ip */
-	      memset(&(_sa_->sin_addr), 0, 4);
+	      memset(&(ss.v4.sin_addr), 0, 4);
 	    }
 	    break;
 	  }
-	  r = socks_rep(state->s, 4, S4AGRANTED, (struct sockaddr *)&ss);
+	  r = socks_rep(state->s, 4, S4AGRANTED, &ss);
 	} else {
 	  r = -1;
 	}
@@ -887,11 +885,10 @@ int socks_proxy_reply(int v, SOCKS_STATE *state)
     }
   }
   return(0);
-#undef _sa_
 }
 
 
-int socks_rep(int s, int ver, int code, struct sockaddr *addr)
+int socks_rep(int s, int ver, int code, SockAddr *addr)
 {
   u_char     buf[512];
   int        len = 0, r;
@@ -915,7 +912,7 @@ int socks_rep(int s, int ver, int code, struct sockaddr *addr)
   return 0;
 }
 
-int build_socks_reply(int ver, int code, struct sockaddr *addr, u_char *buf)
+int build_socks_reply(int ver, int code, SockAddr *addr, u_char *buf)
 {
 
   int len = 0;
@@ -927,8 +924,8 @@ int build_socks_reply(int ver, int code, struct sockaddr *addr, u_char *buf)
       buf[0] = 0;
       buf[1] = code;   /* succeeded */
       if (addr) {
-	memcpy(&buf[2], &(((struct sockaddr_in *)addr)->sin_port), 2);
-	memcpy(&buf[4], &(((struct sockaddr_in *)addr)->sin_addr), 4);
+	memcpy(&buf[2], &addr->v4.sin_port, 2);
+	memcpy(&buf[4], &addr->v4.sin_addr, 4);
       }
       len = 8;
       break;
@@ -948,17 +945,17 @@ int build_socks_reply(int ver, int code, struct sockaddr *addr, u_char *buf)
       buf[1] = code;   /* succeeded */
       buf[2] = 0;
       if (addr) {
-	switch (addr->sa_family) {
+	switch (addr->sa.sa_family) {
 	case AF_INET:
 	  buf[3] = S5ATIPV4;
-	  memcpy(&buf[4], &(((struct sockaddr_in *)addr)->sin_addr), 4);
-	  memcpy(&buf[8], &(((struct sockaddr_in *)addr)->sin_port), 2);
+	  memcpy(&buf[4], &addr->v4.sin_addr, 4);
+	  memcpy(&buf[8], &addr->v4.sin_port, 2);
 	  len = 4+4+2;
 	  break;
 	case AF_INET6:
 	  buf[3] = S5ATIPV6;
-	  memcpy(&buf[4], &(((struct sockaddr_in6 *)addr)->sin6_addr), 16);
-	  memcpy(&buf[20], &(((struct sockaddr_in6 *)addr)->sin6_port), 2);
+	  memcpy(&buf[4], &addr->v6.sin6_addr, 16);
+	  memcpy(&buf[20], &addr->v6.sin6_port, 2);
 	  len = 4+16+2;
 	  break;
 	default:
@@ -1131,7 +1128,7 @@ int connect_to_http(SOCKS_STATE *state)
   char   buf[1024];
   int    error = 0;
   int    c, r, len;
-  struct sockaddr_storage ss;
+  SockAddr ss;
   char *p;
 
   p = buf;
@@ -1170,10 +1167,10 @@ int connect_to_http(SOCKS_STATE *state)
 	    return(-1);
 	  }
 	} while (strcmp(buf, "\r\n") != 0);
-	len = sizeof(ss);
-	getsockname(state->r, (struct sockaddr *)&ss, (socklen_t *)&len);
+	len = SS_LEN;
+	getsockname(state->r, &ss.sa, (socklen_t *)&len);
 	/* is this required ?? */
-	POSITIVE_REP(state->s, state->sr.ver, (struct sockaddr *)&ss);
+	POSITIVE_REP(state->s, state->sr.ver, &ss);
 	return(0);
       }
     }
@@ -1193,7 +1190,7 @@ int forward_connect(SOCKS_STATE *state)
   int    cs = -1;
   struct host_info dest;
   struct addrinfo hints, *res, *res0;
-  struct sockaddr_storage ss;
+  SockAddr ss;
   int    error = 0;
 
   switch(state->rtbl.rl_meth) {
@@ -1216,8 +1213,8 @@ int forward_connect(SOCKS_STATE *state)
   memset(&hints, 0, sizeof(hints));
   hints.ai_socktype = SOCK_STREAM;
   if (same_interface) {
-    memcpy(&ss, &state->si->myc.addr, sizeof(ss));
-    hints.ai_family = ss.ss_family;
+    memcpy(&ss.ss, &state->si->myc.addr.ss, state->si->myc.len);
+    hints.ai_family = ss.sa.sa_family;
     /* XXXXX
       this may cause getaddrinfo returns same address
       family info as clients connected. Is this correct ?
@@ -1251,8 +1248,8 @@ int forward_connect(SOCKS_STATE *state)
     if (same_interface) {
       /* bind the outgoing socket to the same interface
 	 as the inbound client */
-      SET_SOCK_PORT(&ss, 0);
-      if (bind(cs, (struct sockaddr*)&ss, sizeof(ss)) <0) {
+      SET_SOCK_PORT(&ss.ss, 0);
+      if (bind(cs, &ss.sa, state->si->myc.len) <0) {
 	/* bind error */
 	error = errno;
 	close(cs);
@@ -1287,7 +1284,7 @@ int bind_sock(int s, SOCKS_STATE *state, struct addrinfo *ai)
     2. clients src port.
     3. free port.
   */
-  struct sockaddr_storage ss;
+  SockAddr	ss;
   u_int16_t  port;
   size_t     len;
 
@@ -1296,17 +1293,17 @@ int bind_sock(int s, SOCKS_STATE *state, struct addrinfo *ai)
     return 0;
 
   /* try same port as client's */
-  len = sizeof(ss);
+  len = SS_LEN;
   memset(&ss, 0, len);
-  if (getpeername(state->s, (struct sockaddr *)&ss, (socklen_t *)&len) != 0)
+  if (getpeername(state->s, &ss.sa, (socklen_t *)&len) != 0)
     port = 0;
   else {
-    switch (ss.ss_family) {
+    switch (ss.sa.sa_family) {
     case AF_INET:
-      port = ntohs(((struct sockaddr_in *)&ss)->sin_port);
+      port = ntohs(ss.v4.sin_port);
       break;
     case AF_INET6:
-      port = ntohs(((struct sockaddr_in6 *)&ss)->sin6_port);
+      port = ntohs(ss.v6.sin6_port);
       break;
     default:
       port = 0;
@@ -1343,8 +1340,7 @@ int do_bind(int s, struct addrinfo *ai, u_int16_t p)
   {
     int    on = 1;
     if (ai->ai_family == AF_INET6 &&
-	setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY,
-		   &on, sizeof(on)) < 0)
+	setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &on, sizeof(on)) < 0)
       return -1;
   }
 #endif
@@ -1568,51 +1564,49 @@ int lookup_tbl(SOCKS_STATE *state)
  */
 int resolv_host(bin_addr *addr, u_int16_t port, struct host_info *info)
 {
-  struct  sockaddr_storage ss;
+  SockAddr ss;
   int     error = 0;
   int     len = 0;
-#define _sa_ ((struct sockaddr_in *)&ss)
-#define _sa6_ ((struct sockaddr_in6 *)&ss)
 
-  memset(&ss, 0, sizeof(ss));
+  memset(&ss.ss, 0, SS_LEN);
   switch (addr->atype) {
   case S5ATIPV4:
-    len = sizeof(struct sockaddr_in);
+    len = V4_LEN;
 #ifdef HAVE_SOCKADDR_SA_LEN
-    _sa_->sin_len = len;
+    ss.v4.sin_len = len;
 #endif
-    _sa_->sin_family = AF_INET;
-    memcpy(&(_sa_->sin_addr), addr->v4_addr, sizeof(struct in_addr));
-    _sa_->sin_port = htons(port);
+    ss.v4.sin_family = AF_INET;
+    memcpy(&(ss.v4.sin_addr), addr->v4_addr, sizeof(struct in_addr));
+    ss.v4.sin_port = htons(port);
     break;
   case S5ATIPV6:
-    len = sizeof(struct sockaddr_in6);
+    len = V6_LEN;
 #ifdef HAVE_SOCKADDR_SA_LEN
-    _sa6_->sin6_len = len;
+    ss.v6.sin6_len = len;
 #endif
-    _sa6_->sin6_family = AF_INET6;
-    memcpy(&(_sa6_->sin6_addr), addr->v6_addr, sizeof(struct in6_addr));
-    _sa6_->sin6_scope_id = addr->v6_scope;
-    _sa6_->sin6_port = htons(port);
+    ss.v6.sin6_family = AF_INET6;
+    memcpy(&(ss.v6.sin6_addr), addr->v6_addr, sizeof(struct in6_addr));
+    ss.v6.sin6_scope_id = addr->v6_scope;
+    ss.v6.sin6_port = htons(port);
     break;
   case S5ATFQDN:
-    len = sizeof(struct sockaddr_in);
+    len = V4_LEN;
 #ifdef HAVE_SOCKADDR_SA_LEN
-    _sa_->sin_len = len;
+    ss.v4.sin_len = len;
 #endif
-    _sa_->sin_family = AF_INET;
-    _sa_->sin_port = htons(port);
+    ss.v4.sin_family = AF_INET;
+    ss.v4.sin_port = htons(port);
     break;
   default:
     break;
   }
   if (addr->atype == S5ATIPV4 || addr->atype == S5ATIPV6) {
-    error = getnameinfo((struct sockaddr *)&ss, len,
+    error = getnameinfo(&ss.sa, len,
 			info->host, sizeof(info->host),
 			info->port, sizeof(info->port),
 			NI_NUMERICHOST | NI_NUMERICSERV);
   } else if (addr->atype == S5ATFQDN) {
-    error = getnameinfo((struct sockaddr *)&ss, len,
+    error = getnameinfo(&ss.sa, len,
 			NULL, 0,
 			info->port, sizeof(info->port),
 			NI_NUMERICSERV);
@@ -1624,8 +1618,6 @@ int resolv_host(bin_addr *addr, u_int16_t port, struct host_info *info)
     error++;
   }
   return(error);
-#undef _sa_
-#undef _sa6_
 }
 
 /*

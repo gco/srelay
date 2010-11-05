@@ -232,7 +232,7 @@ int serv_loop()
       continue;
     }
 
-    len = sizeof(struct sockaddr_storage);
+    len = SS_LEN;
     cs = accept(serv_sock[i], (struct sockaddr *)&cl, (socklen_t *)&len);
     if (cs < 0) {
       if (errno == EINTR
@@ -290,11 +290,11 @@ int serv_loop()
     state.s = cs;
 
     /* get downstream-side socket/peer name */
-    len = sizeof(struct sockaddr_storage);
-    getsockname(cs, (struct sockaddr*)&si.myc.addr, (socklen_t *)&len);
+    len = SS_LEN;
+    getsockname(cs, &si.myc.addr.sa, (socklen_t *)&len);
     si.myc.len = len;
-    len = sizeof(struct sockaddr_storage);
-    getpeername(cs, (struct sockaddr*)&si.prc.addr, (socklen_t *)&len);
+    len = SS_LEN;
+    getpeername(cs, &si.prc.addr.sa, (socklen_t *)&len);
     si.prc.len = len;
 
 

@@ -102,7 +102,7 @@ typedef    u_int32_t    socklen_t;
 # endif
 #endif
 
-#define version  "srelay 0.4.8b3 2010/10/30 (Tomo.M)"
+#define version  "srelay 0.4.8b4 2010/11/05 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"
@@ -227,6 +227,16 @@ enum { norm=0, warn, crit };
 #define S4ECNIDENT    92
 #define S4EIVUSRID    93
 
+typedef union {
+  struct sockaddr sa;
+  struct sockaddr_in v4;
+  struct sockaddr_in6 v6;
+  struct sockaddr_storage ss;
+} SockAddr;
+
+#define V4_LEN	sizeof(struct sockaddr_in)
+#define V6_LEN	sizeof(struct sockaddr_in6)
+#define SS_LEN	sizeof(struct sockaddr_storage)
 
 typedef struct {            /* binary format of SOCKS address */
   u_int8_t      atype;
@@ -269,8 +279,8 @@ typedef struct {
 } ROUTE_INFO;
 
 typedef struct {
-  struct sockaddr_storage addr;
-  socklen_t  len;
+  SockAddr	addr;
+  socklen_t	len;
 } HADDR;
 
 typedef struct {

@@ -541,8 +541,8 @@ int readpasswd(FILE *fp, bin_addr *proxy, struct user_pass *up)
 /* how to do with #if 1 */
 /*
   ./configure
-  make readconf.o util.o
-  gcc -pthread -o readconf readconf.o util.o
+  make readconf.o util.o socks.o
+  gcc -pthread -o readconf readconf.o util.o socks.o
   ./readconf conf
 */
 /* dummy */
@@ -554,63 +554,9 @@ pthread_t main_thread;
 char *config;
 /* dummy */
 
-int resolv_host(bin_addr *addr, char *p, int l)
-{
-  int    len, error;
-  struct sockaddr_storage ss;
-  struct sockaddr_in  *sa;
-  struct sockaddr_in6 *sa6;
+extern int resolve_host(bin_addr *, u_int16_t, struct host_info *)
 
-  struct in6_addr in6addr_any = IN6ADDR_ANY_INIT;
-  struct in_addr  inaddr_any;
-
-  inaddr_any.s_addr = INADDR_ANY;
-
-
-  memset(&ss, 0, sizeof(ss));
-  switch (addr->atype) {
-  case S5ATIPV4:
-    len = sizeof(struct sockaddr_in);
-    sa = (struct sockaddr_in *)&ss;
-    sa->sin_family = AF_INET;
-    memcpy(&sa->sin_addr, &(addr->v4_addr), len);
-    sa->sin_len = len;
-    error = getnameinfo((struct sockaddr *)sa, len,
-			p, l, NULL, 0, NI_NUMERICHOST);
-    if (error) {
-      strncpy(p, "<error>", l);
-    }
-    if (memcmp(&(addr->v4_addr), &inaddr_any,
-	       sizeof(inaddr_any)) == 0) {
-      strncat(p, "(INADDR_ANY)", l);
-    }
-    break;
-  case S5ATIPV6:
-    len = sizeof(struct sockaddr_in6);
-    sa6 = (struct sockaddr_in6 *)&ss;
-    sa6->sin6_family = AF_INET6;
-    memcpy(&sa6->sin6_addr, &(addr->v6_addr), len);
-    sa6->sin6_len = len;
-    error = getnameinfo((struct sockaddr *)sa6, len,
-			p, l, NULL, 0,	NI_NUMERICHOST);
-    if (error) {
-      strncpy(p, "<error>", l);
-    }
-    if (memcmp(&(addr->v6_addr), &in6addr_any,
-	       sizeof(in6addr_any)) == 0) {
-      strncat(p, "(IN6ADDR_ANY)", l);
-    }
-    break;
-  case S5ATFQDN:
-  default:
-    strncpy(p, (char *)(addr->fqdn), addr->len_fqdn);
-    p[addr->len_fqdn] = '\0';
-    break;
-  }
-  return 0;
-}
-
-void dump_entry()
+void dump_entry();
 {
   int    i, j;
   char   host[NI_MAXHOST];
@@ -637,7 +583,6 @@ void dump_entry()
   }
 }
 
-#if 0
 void checkpwd(char *user, bin_addr *proxy, struct user_pass *up)
 {
   FILE *fp;
@@ -651,7 +596,6 @@ void checkpwd(char *user, bin_addr *proxy, struct user_pass *up)
   }
 
 }
-#endif
 
 int main(int argc, char **argv) {
 
