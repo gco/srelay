@@ -15,7 +15,7 @@ case "$build_os" in
 	;;
   linux*)
 	case "$host_cpu" in
-	  i*86|mips*|powerpc*|sparc*)
+	  i*86|mips*|powerpc*|sparc*|x86_64*)
 	    OS=LINUX
 	    AC_DEFINE(LINUX)
 	    ;;

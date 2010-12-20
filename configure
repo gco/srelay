@@ -1875,7 +1875,7 @@ _ACEOF
 	;;
   linux*)
 	case "$host_cpu" in
-	  i*86|mips*|powerpc*|sparc*)
+	  i*86|mips*|powerpc*|sparc*|x86_64*)
 	    OS=LINUX
 	    cat >>confdefs.h <<\_ACEOF
 #define LINUX 1
@@ -3696,7 +3696,7 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
 else
   ac_cv_header_stdc=no
 fi
-rm -f conftest*
+rm -f -r conftest*
 
 fi
 
@@ -3717,7 +3717,7 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
 else
   ac_cv_header_stdc=no
 fi
-rm -f conftest*
+rm -f -r conftest*
 
 fi
 
@@ -4488,7 +4488,7 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
 else
   ac_cv_header_stdc=no
 fi
-rm -f conftest*
+rm -f -r conftest*
 
 fi
 
@@ -4509,7 +4509,7 @@ if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
 else
   ac_cv_header_stdc=no
 fi
-rm -f conftest*
+rm -f -r conftest*
 
 fi
 
