@@ -32,22 +32,10 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#include <syslog.h>
 #include <stdarg.h>
 #include <fcntl.h>
 #include <sys/wait.h>
 #include "srelay.h"
-
-#ifdef LOCAL_FAC
-# define LOCALFAC  LOCAL_FAC
-#else
-# define LOCALFAC  0
-#endif
-#ifdef SYSLOG_FAC
-#  define SYSLOGFAC (SYSLOG_FAC|LOCALFAC)
-#else
-#  define SYSLOGFAC (LOG_DAEMON|LOCALFAC)
-#endif
 
 int forcesyslog = 0;
 
@@ -92,7 +80,11 @@ int addr_comp(bin_addr *a1, bin_addr *a2, int mask)
   int      i;
   struct in6_addr sin61, sin62;
 
+#ifdef SOLARIS
+  struct in6_addr in6addr_any = { { IN6ADDR_ANY_INIT } };
+#else
   struct in6_addr in6addr_any = IN6ADDR_ANY_INIT;
+#endif
   struct in_addr  inaddr_any;
 
   inaddr_any.s_addr = INADDR_ANY;

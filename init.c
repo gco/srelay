@@ -54,14 +54,20 @@ int serv_init(char *ifs)
   char   hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
   char   tmp_str_serv_sock[NI_MAXHOST+NI_MAXSERV+1];
   const  int on = 1;
+  int    new_sock_count = 0;
 
   if (ifs == NULL || *ifs == '\0') {
     str_serv_sock = malloc(sizeof(char *) * MAX_SOCKS);
     if (str_serv_sock == NULL)
       return -1;
+    memset(str_serv_sock, 0, sizeof(char *) * MAX_SOCKS);
     serv_sock = malloc(sizeof(int) * MAX_SOCKS);
     if (serv_sock == NULL)
       return -1;
+    for (i = 0; i<MAX_SOCKS; i++) {
+      /* initialize socket as -1 */
+      serv_sock[i] = -1;
+    }
     serv_sock_ind = 0;
     maxsock = 0;
     FD_ZERO(&allsock);
@@ -179,15 +185,37 @@ int serv_init(char *ifs)
       FD_SET(s, &allsock);
       maxsock = MAX(s, maxsock);
       serv_sock_ind++;
+      new_sock_count++;
     }
   }
 
-  if (serv_sock_ind == 0) {
-    msg_out(warn, "no server socket prepared, exitting...\n");
+  if (new_sock_count == 0) {
+    /* no server socket added this time */
     return(-1);
   }
 
   return(0);
+}
+
+void close_all_serv()
+{
+  int i;
+
+  for (i = 0; i < serv_sock_ind; i++) {
+    if (serv_sock[i] >= 0) {
+      FD_CLR(serv_sock[i], &allsock);
+      if (maxsock > 1 && serv_sock[i] == maxsock) {
+	maxsock--;
+      }
+      close(serv_sock[i]);
+      serv_sock[i] = -1;
+    }
+    if (str_serv_sock[i] != NULL) {
+      free(str_serv_sock[i]);
+      str_serv_sock[i] = NULL;
+    }
+  }
+  serv_sock_ind = 0;
 }
 
 int queue_init()

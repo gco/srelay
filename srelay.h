@@ -44,6 +44,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
+#include <syslog.h>
 
 #if HAVE_CONFIG_H
 #include <config.h>
@@ -102,7 +103,7 @@ typedef    u_int32_t    socklen_t;
 # endif
 #endif
 
-#define version  "srelay 0.4.8b4 2010/11/05 (Tomo.M)"
+#define version  "srelay 0.4.8b5 2010/12/20 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"
@@ -158,9 +159,14 @@ typedef    u_int32_t    socklen_t;
 
 extern pthread_t main_thread;  /* holding the main thread ID */
 extern int threading;
-#endif
 
-#ifdef USE_THREAD
+# if (MAX_FD > 22)
+#   define THREAD_LIMIT   (MAX_FD - 20)/2
+# else
+#   define THREAD_LIMIT    1     /* wooo !!! */
+# endif
+# define MAX_THREAD (THREAD_LIMIT > 64 ? 64 : THREAD_LIMIT)
+
 # define MUTEX_LOCK(mutex) \
     if (threading) { \
       pthread_mutex_lock(&mutex); \
@@ -169,21 +175,32 @@ extern int threading;
     if (threading) { \
       pthread_mutex_unlock(&mutex); \
     }
-#else
+
+#else  /* !USE_THREAD */
+
 # define MUTEX_LOCK(mutex)
 # define MUTEX_UNLOCK(mutex)
+
 #endif
 
-#ifdef USE_THREAD
-# if (MAX_FD > 22)
-#   define THREAD_LIMIT   (MAX_FD - 20)/2
-# else
-#   define THREAD_LIMIT    1     /* wooo !!! */
-# endif
-# define MAX_THREAD (THREAD_LIMIT > 64 ? 64 : THREAD_LIMIT)    
+/* syslog facilities */
+#ifdef LOCAL_FAC
+# define LOCALFAC  LOCAL_FAC
+#else
+# define LOCALFAC  0
+#endif
+#ifdef SYSLOG_FAC
+#  define SYSLOGFAC (SYSLOG_FAC|LOCALFAC)
+#else
+#  define SYSLOGFAC (LOG_DAEMON|LOCALFAC)
 #endif
 
 enum { norm=0, warn, crit };
+
+
+/*
+ *  SOCKS protocol related definitions
+ */
 
 /*  address types */
 #define S5ATIPV4    1
@@ -379,6 +396,7 @@ extern int same_interface;
 extern int use_tcpwrap;
 #endif /* HAVE_LIBWRAP */
 extern int fg;		/* foreground operation */
+extern int inetd_mode;  /* inetd mode */
 
 /* from init.c */
 extern char **str_serv_sock;
@@ -409,6 +427,7 @@ extern int forcesyslog;
 
 /* init.c */
 extern int serv_init __P((char *));
+extern void close_all_serv __P((void));
 extern int queue_init __P((void));
 
 /* main.c */

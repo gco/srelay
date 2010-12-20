@@ -33,7 +33,6 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include <sys/stat.h>
-#include <syslog.h>
 #include "srelay.h"
 
 /* prototypes */
@@ -61,7 +60,6 @@ int same_interface = 0;
 int use_tcpwrap = 0;
 # include <tcpd.h>
 # ifdef LINUX
-#  include <syslog.h>
 int    allow_severity = LOG_AUTH|LOG_INFO;
 int    deny_severity  = LOG_AUTH|LOG_NOTICE;
 # endif /* LINUX */
@@ -72,6 +70,7 @@ int max_child;
 int cur_child;
 
 int fg;        /* foreground operation */
+int inetd_mode = 0;  /* inetd mode */
 int bind_restrict = 1; /* socks bind port is restricted */
 
 /* authentication method priority table */
@@ -108,6 +107,7 @@ void usage()
 #ifdef HAVE_LIBWRAP
 	  "\t-w\tuse tcp_wrapper access control\n"
 #endif /* HAVE_LIBWRAP */
+	  "\t-I\tinetd mode\n"
 	  "\t-v\tshow version and exit\n"
 	  "\t-h\tshow this help and exit\n");
   exit(1);
@@ -155,7 +155,6 @@ int serv_loop()
   CL_INFO	client;
 
   int    cs;
-  struct sockaddr_storage cl;
   fd_set readable;
   int    i, n, len;
   int    error;
@@ -233,7 +232,8 @@ int serv_loop()
     }
 
     len = SS_LEN;
-    cs = accept(serv_sock[i], (struct sockaddr *)&cl, (socklen_t *)&len);
+    cs = accept(serv_sock[i], &si.prc.addr.sa, (socklen_t *)&len);
+    si.prc.len = len;
     if (cs < 0) {
       if (errno == EINTR
 #ifdef SOLARIS
@@ -264,12 +264,17 @@ int serv_loop()
     }
 #endif
 
-    error = getnameinfo((struct sockaddr *)&cl, len,
+    /* get downstream-side socket name */
+    len = SS_LEN;
+    getsockname(cs, &si.myc.addr.sa, (socklen_t *)&len);
+    si.myc.len = len;
+
+    error = getnameinfo(&si.prc.addr.sa, si.prc.len,
 			client.addr, sizeof(client.addr),
 			NULL, 0,
 			NI_NUMERICHOST);
     if (resolv_client) {
-      error = getnameinfo((struct sockaddr *)&cl, len,
+      error = getnameinfo(&si.prc.addr.sa, si.prc.len,
 			  client.name, sizeof(client.name),
 			  NULL, 0, 0);
       msg_out(norm, "%s[%s] connected", client.name, client.addr);
@@ -286,17 +291,7 @@ int serv_loop()
     }
 
     set_blocking(cs);
-
     state.s = cs;
-
-    /* get downstream-side socket/peer name */
-    len = SS_LEN;
-    getsockname(cs, &si.myc.addr.sa, (socklen_t *)&len);
-    si.myc.len = len;
-    len = SS_LEN;
-    getpeername(cs, &si.prc.addr.sa, (socklen_t *)&len);
-    si.prc.len = len;
-
 
 #ifdef USE_THREAD
     if (!threading ) {
@@ -345,6 +340,59 @@ int serv_loop()
   }
 }
 
+int inetd_service(int cs)
+{
+  SOCKS_STATE	state;
+  SOCK_INFO	si;
+  CL_INFO	client;
+  int    len;
+  int    error;
+ 
+  memset(&state, 0, sizeof(state));
+  memset(&si, 0, sizeof(si));
+  state.si = &si;
+
+  /* get downstream-side socket name */
+  len = SS_LEN;
+  getsockname(cs, &si.myc.addr.sa, (socklen_t *)&len);
+  si.myc.len = len;
+
+  /* get downstream-side peer name */
+  len = SS_LEN;
+  getpeername(cs, &si.prc.addr.sa, (socklen_t *)&len);
+  si.prc.len = len;
+
+  error = getnameinfo(&si.prc.addr.sa, si.prc.len,
+		      client.addr, sizeof(client.addr),
+		      NULL, 0,
+		      NI_NUMERICHOST);
+  if (resolv_client) {
+    error = getnameinfo(&si.prc.addr.sa, si.prc.len,
+			client.name, sizeof(client.name),
+			NULL, 0, 0);
+    msg_out(norm, "%s[%s] connected", client.name, client.addr);
+  } else {
+    msg_out(norm, "%s connected", client.addr);
+    strncpy(client.name, client.addr, sizeof(client.name));
+  }
+
+  set_blocking(cs);
+  state.s = cs;
+
+  error = proto_socks(&state);
+  if (error == -1) {
+    msg_out(warn, "socks proto error");
+    close(state.s);
+    if (state.sr.udp != NULL)
+      free(state.sr.udp);
+    return(-1);
+  }
+  /* start relaying */
+  relay(&state);
+  close(cs);
+  return(0);
+}
+
 int main(int ac, char **av)
 {
   int     ch, i=0;
@@ -367,7 +415,11 @@ int main(int ac, char **av)
   max_child = MAX_CHILD;
   cur_child = 0;
 
-  serv_init(NULL);
+  /* create service socket table (malloc) */
+  if (serv_init(NULL) < 0) {
+    msg_out(crit, "cannot malloc: %m\n");
+    exit(-1);
+  }
 
   proxy_tbl = NULL;
   proxy_tbl_ind = 0;
@@ -376,9 +428,9 @@ int main(int ac, char **av)
 
   uid = getuid();
 
-  openlog(ident, LOG_PID, LOG_DAEMON);
+  openlog(ident, LOG_PID | LOG_NDELAY, SYSLOGFAC);
 
-  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:frstbwgvh?")) != -1)
+  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:frstbwgIvh?")) != -1)
     switch (ch) {
     case 'a':
       if (optarg != NULL) {
@@ -427,8 +479,8 @@ int main(int ac, char **av)
     case 'i':
       if (optarg != NULL) {
 	if (serv_init(optarg) < 0) {
-	  msg_out(crit, "cannot init server socket(-i)\n");
-	  exit(-1);
+	  msg_out(warn, "cannot init server socket(-i %s): %m\n", optarg);
+	  break;
 	}
       }
       break;
@@ -490,6 +542,10 @@ int main(int ac, char **av)
 #endif /* HAVE_LIBWRAP */
       break;
 
+    case 'I':
+      inetd_mode = 1;
+      break;
+
     case 'v':
       show_version();
       exit(1);
@@ -503,13 +559,22 @@ int main(int ac, char **av)
   ac -= optind;
   av += optind;
 
-  fp = fopen(config, "r");
-  if (readconf(fp) != 0) {
-    /* readconf error */
-    exit(1);
-  }
-  if (fp)
+  if ((fp = fopen(config, "r")) != NULL) {
+    if (readconf(fp) != 0) {
+      /* readconf error */
+      exit(1);
+    }
     fclose(fp);
+  }
+
+  if (inetd_mode) {
+    /* close all server socket if opened */
+    close_all_serv();
+    /* assuming that STDIN_FILENO handles bi-directional
+     */
+    exit(inetd_service(STDIN_FILENO));
+    /* not reached */
+  }
 
   if (serv_sock_ind == 0) {   /* no valid ifs yet */
     if (serv_init(":") < 0) { /* use default */
@@ -586,7 +651,7 @@ int main(int ac, char **av)
   setsignal(SIGILL, SIG_IGN);
   setsignal(SIGTRAP, SIG_IGN);
   setsignal(SIGABRT, SIG_IGN);
-#ifndef LINUX
+#ifdef SIGEMT
   setsignal(SIGEMT, SIG_IGN);
 #endif
   setsignal(SIGFPE, SIG_IGN);
@@ -598,7 +663,7 @@ int main(int ac, char **av)
   setsignal(SIGTERM, cleanup);
   setsignal(SIGUSR1, SIG_IGN);
   setsignal(SIGUSR2, SIG_IGN);
-#if !defined(FREEBSD) && !defined(MACOSX)
+#ifdef SIGPOLL
   setsignal(SIGPOLL, SIG_IGN);
 #endif
   setsignal(SIGVTALRM, SIG_IGN);
