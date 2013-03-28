@@ -108,6 +108,7 @@ void usage()
 	  "\t-w\tuse tcp_wrapper access control\n"
 #endif /* HAVE_LIBWRAP */
 	  "\t-I\tinetd mode\n"
+	  "\t-q\twill be quiet\n"
 	  "\t-v\tshow version and exit\n"
 	  "\t-h\tshow this help and exit\n");
   exit(1);
@@ -430,7 +431,7 @@ int main(int ac, char **av)
 
   openlog(ident, LOG_PID | LOG_NDELAY, SYSLOGFAC);
 
-  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:frstbwgIvh?")) != -1)
+  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:frstbwgIqvh?")) != -1)
     switch (ch) {
     case 'a':
       if (optarg != NULL) {
@@ -544,6 +545,10 @@ int main(int ac, char **av)
 
     case 'I':
       inetd_mode = 1;
+      break;
+
+    case 'q':
+      be_quiet = 1;
       break;
 
     case 'v':

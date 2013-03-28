@@ -103,7 +103,7 @@ typedef    u_int32_t    socklen_t;
 # endif
 #endif
 
-#define version  "srelay 0.4.8b5 2010/12/20 (Tomo.M)"
+#define version  "srelay 0.4.8b6 2013/03/11 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"
@@ -416,6 +416,7 @@ extern u_long   idle_timeout;
 
 /* from util.c */
 extern int forcesyslog;
+extern int be_quiet;
 
 /* from socks.c */
 

@@ -1475,9 +1475,6 @@ int lookup_tbl(SOCKS_STATE *state)
 
   match = 0;
   for (i=0; i < proxy_tbl_ind; i++) {
-    /* check atype */
-    if ( state->sr.dest.atype != proxy_tbl[i].dest.atype )
-      continue;
     /* check IP PROTO */
     if ( (state->sr.req == S5REQ_UDPA && proxy_tbl[i].proto == TCP)
 	 || (state->sr.req != S5REQ_UDPA && proxy_tbl[i].proto == UDP))
