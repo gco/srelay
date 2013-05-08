@@ -165,7 +165,7 @@ extern int threading;
 # else
 #   define THREAD_LIMIT    1     /* wooo !!! */
 # endif
-# define MAX_THREAD (THREAD_LIMIT > 64 ? 64 : THREAD_LIMIT)
+# define MAX_THREAD (THREAD_LIMIT > 128 ? 128 : THREAD_LIMIT)
 
 # define MUTEX_LOCK(mutex) \
     if (threading) { \
