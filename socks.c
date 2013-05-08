@@ -1547,9 +1547,10 @@ int lookup_tbl(SOCKS_STATE *state)
 	  if ( addr.atype != proxy_tbl[i].dest.atype )
 	    continue;
 	  if (addr_comp(&addr, &(proxy_tbl[i].dest),
-			proxy_tbl[i].mask) == 0)
+			proxy_tbl[i].mask) == 0) {
 	    match++;
-	  break;
+	    break;
+	  }
 	}
 	if ( match )
 	  break;
