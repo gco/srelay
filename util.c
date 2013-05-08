@@ -73,14 +73,16 @@ void msg_out(int severity, const char *fmt, ...)
     gethostname(host, sizeof(host));
     strftime(timestr, sizeof(timestr), "%b %e %T", localtime_r(&ts, &stamp));
     fprintf(stderr, "%s %s ", timestr, host);
-  va_start(ap, fmt);
+    va_start(ap, fmt);
     vfprintf(stderr, fmt, ap);
     va_end(ap);
-    fprintf(stderr, "\n");
+    /* syslog adds a newline if one is not present, do the same here */
+    if (fmt[strlen(fmt) - 1] != '\n')
+      putc('\n', stderr);
   } else {
     va_start(ap, fmt);
     vsyslog(priority, fmt, ap);
-  va_end(ap);
+    va_end(ap);
   }
   fflush(NULL);
 }

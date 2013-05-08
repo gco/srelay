@@ -333,7 +333,7 @@ void add_entry(ROUTE_INFO *route, ROUTE_INFO **tbl, int *ind)
 
 void parse_err(int sev, int line, char *msg)
 {
-  msg_out(sev, "%s: line %d: %s\n", CONFIG, line, msg);
+  msg_out(sev, "%s: line %d: %s", CONFIG, line, msg);
 }
 
 int str_to_addr(char *addr, bin_addr *dest)
