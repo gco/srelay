@@ -559,7 +559,7 @@ int proxy_connect(SOCKS_STATE *state)
   /* relay method must not be DIRECT */
   /* forward socket should not be connected yet */
   if (state->rtbl.rl_meth < 1 || state->r >= 0) {
-    /* shoud not be here */
+    /* should not be here */
     GEN_ERR_REP(state->s, state->sr.ver);
     return(-1);
   }
