@@ -666,9 +666,6 @@ int main(int ac, char **av)
 #ifdef SIGEMT
   setsignal(SIGEMT, SIG_IGN);
 #endif
-  setsignal(SIGFPE, SIG_IGN);
-  setsignal(SIGBUS, SIG_IGN);
-  setsignal(SIGSEGV, SIG_IGN);
   setsignal(SIGSYS, SIG_IGN);
   setsignal(SIGPIPE, SIG_IGN);
   setsignal(SIGALRM, SIG_IGN);
