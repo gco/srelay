@@ -419,7 +419,7 @@ int main(int ac, char **av)
 
   /* create service socket table (malloc) */
   if (serv_init(NULL) < 0) {
-    msg_out(crit, "cannot malloc: %m\n");
+    msg_out(crit, "cannot malloc: %m");
     exit(-1);
   }
 
@@ -444,7 +444,7 @@ int main(int ac, char **av)
 	    if ( uid != 0 ) {
 	      /* process does not started by root */
 	      msg_out(warn, "uid == %d (!=0),"
-		      "user/pass auth will not work, ignored.\n",
+		      "user/pass auth will not work, ignored.",
 		      uid);
 	      break;
 	    }
@@ -481,7 +481,7 @@ int main(int ac, char **av)
     case 'i':
       if (optarg != NULL) {
 	if (serv_init(optarg) < 0) {
-	  msg_out(warn, "cannot init server socket(-i %s): %m\n", optarg);
+	  msg_out(warn, "cannot init server socket(-i %s): %m", optarg);
 	  break;
 	}
       }
@@ -565,6 +565,9 @@ int main(int ac, char **av)
   ac -= optind;
   av += optind;
 
+  if (fg && !forcesyslog && isatty(fileno(stderr)))
+    setvbuf(stderr, NULL, _IOLBF, 0);
+
   if ((fp = fopen(config, "r")) != NULL) {
     if (readconf(fp) != 0) {
       /* readconf error */
@@ -585,7 +588,7 @@ int main(int ac, char **av)
   if (serv_sock_ind == 0) {   /* no valid ifs yet */
     if (serv_init(":") < 0) { /* use default */
       /* fatal */
-      msg_out(crit, "cannot open server socket\n");
+      msg_out(crit, "cannot open server socket");
       exit(1);
     }
   }
@@ -594,7 +597,7 @@ int main(int ac, char **av)
   if ( ! threading ) {
 #endif
     if (queue_init() != 0) {
-      msg_out(crit, "cannot init signal queue\n");
+      msg_out(crit, "cannot init signal queue");
       exit(1);
     }
 #ifdef USE_THREAD

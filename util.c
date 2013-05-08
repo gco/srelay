@@ -66,6 +66,9 @@ void msg_out(int severity, const char *fmt, ...)
   va_start(ap, fmt);
   if (fg && !forcesyslog && isatty(fileno(stderr))) {
     vfprintf(stderr, fmt, ap);
+    /* syslog adds a newline if one is not present, do the same here */
+    if (fmt[strlen(fmt) - 1] != '\n')
+      putc('\n', stderr);
   } else {
     vsyslog(priority, fmt, ap);
   }
