@@ -169,7 +169,8 @@ int serv_loop()
 #ifdef USE_THREAD
   if (threading) {
     blocksignal(SIGHUP);
-    blocksignal(SIGINT);
+    if (!fg)
+      blocksignal(SIGINT);
     blocksignal(SIGUSR1);
   }
 #endif
@@ -651,7 +652,10 @@ int main(int ac, char **av)
   }
 
   setsignal(SIGHUP, reload);
-  setsignal(SIGINT, SIG_IGN);
+  if (fg)
+    setsignal(SIGINT, cleanup);
+  else
+    setsignal(SIGINT, SIG_IGN);
   setsignal(SIGQUIT, SIG_IGN);
   setsignal(SIGILL, SIG_IGN);
   setsignal(SIGTRAP, SIG_IGN);
