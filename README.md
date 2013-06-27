@@ -22,7 +22,8 @@ Config Sample: [basic config](http://socks-relay.sourceforge.net/samples.html)
 References
 ==========
 (These document links do not assure the compliancy of this software. Yeah, indeed.)
-[SOCKS Protocol Version 4](http://socks-relay.sourceforge.net/socks4.protocol.txt)
-[SOCKS Protocol Version 4A socks 4a](http://socks-relay.sourceforge.net/socks4a.protocol.txt)
-SOCKS Protocol Version 5 [RFC 1928](http://www.ietf.org/rfc/rfc1928.txt)
-Username/Password Authentication for SOCKS V5 [RFC 1929](http://www.ietf.org/rfc/rfc1929.txt)
+
+* [SOCKS Protocol Version 4](http://socks-relay.sourceforge.net/socks4.protocol.txt)
+* [SOCKS Protocol Version 4A socks 4a](http://socks-relay.sourceforge.net/socks4a.protocol.txt)
+* SOCKS Protocol Version 5 [RFC 1928](http://www.ietf.org/rfc/rfc1928.txt)
+* Username/Password Authentication for SOCKS V5 [RFC 1929](http://www.ietf.org/rfc/rfc1929.txt)
