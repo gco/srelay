@@ -47,6 +47,7 @@ char *pidfile = PIDFILE;
 char *pwdfile = NULL;
 char *localpwd = NULL;
 char *bindtodevice = NULL;
+char *bindout = NULL;
 pid_t master_pid;
 
 #if USE_THREAD
@@ -96,6 +97,7 @@ void usage()
 #ifdef SO_BINDTODEVICE
 	  "\t-J i/f\toutbound interface name\n"
 #endif
+	  "\t-x ipv4\tuse ipv4 literal for outbound connections (probably conflicts with -J and -g)\n"
 	  "\t-m num\tmax child/thread\n"
 	  "\t-o min\tidle timeout minutes\n"
 	  "\t-p file\tpid file\n"
@@ -472,7 +474,7 @@ int main(int ac, char **av)
 
   openlog(ident, LOG_PID | LOG_NDELAY, SYSLOGFAC);
 
-  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:U:frstbwgIqvVh?")) != -1) {
+  while((ch = getopt(ac, av, "a:c:i:x:J:m:o:p:u:U:frstbwgIqvVh?")) != -1) {
     switch (ch) {
     case 'a':
       if (optarg != NULL) {
@@ -538,6 +540,12 @@ int main(int ac, char **av)
       }
       break;
 #endif
+
+    case 'x':
+      if (optarg != NULL) {
+	bindout = strdup(optarg);
+      }
+      break;
 
     case 'o':
       if (optarg != NULL) {

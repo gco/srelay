@@ -1268,6 +1268,23 @@ int forward_connect(SOCKS_STATE *state)
       }
     }
 
+    if (bindout) {
+      struct sockaddr_in localaddr;
+      memset(&localaddr, 0, sizeof(struct sockaddr_in));
+      if (inet_aton(bindout, &localaddr.sin_addr) == 0) {
+        /* inet_aton error */
+        error = EINVAL;
+        close(cs);
+        continue;
+      }
+      if (bind(cs, (struct sockaddr *) &localaddr, sizeof(localaddr)) <0) {
+	/* bind error */
+	error = errno;
+	close(cs);
+	continue;
+      }
+    }
+
     if (connect(cs, res->ai_addr, res->ai_addrlen) == 0) {
       error = 0;
       break;
