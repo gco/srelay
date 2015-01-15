@@ -125,6 +125,38 @@ int lookup_tbl __P((SOCKS_STATE *));
 int resolv_host __P((bin_addr *, u_int16_t, struct host_info *));
 int log_request __P((SOCKS_STATE *));
 
+void print_priority() {
+  int y;
+  for (y = 0; y < proxy_tbl_ind; ++y)
+    fprintf(stderr, "%d ", tbl_priority[y]);
+  fprintf(stderr, "\n");
+}
+void soft_penal(int index) {
+  if (!prioritize_downstreams) return;
+  tbl_priority[index] *= 0.8;
+  if (tbl_priority[index] == 0)
+    tbl_priority[index] = 1;
+  fprintf(stderr, "Soft Penal #%d out of %d\n", index, proxy_tbl_ind);
+  print_priority();
+}
+void hard_penal(int index) {
+  if (!prioritize_downstreams) return;
+  // half priority
+  tbl_priority[index] /= 2;
+  if (tbl_priority[index] == 0)
+    tbl_priority[index] = 1;
+  fprintf(stderr, "Hard Penal #%d out of %d\n", index, proxy_tbl_ind);
+  print_priority();
+}
+void encourage(int index, int delta) {
+  if (!prioritize_downstreams) return;
+  // increase priority
+  tbl_priority[index] += delta;
+  if (tbl_priority[index] > MAX_PRIORITY)
+    tbl_priority[index] = MAX_PRIORITY;
+  fprintf(stderr, "Encourage #%d out of %d, delta=%d\n", index, proxy_tbl_ind, delta);
+  print_priority();
+}
 
 /*
   proto_socks:
@@ -197,21 +229,11 @@ int proto_socks(SOCKS_STATE *state)
       state->si->prs.len = len;
     }
 
-    if (prioritize_downstreams) {
-      // increase priority
-      tbl_priority[state->tbl_ind]++;
-      if (tbl_priority[state->tbl_ind] > MAX_PRIORITY)
-	tbl_priority[state->tbl_ind] = MAX_PRIORITY;
-    }
+    encourage(state->tbl_ind, 1);
     return(0);   /* 0: OK */
   }
   /* error */
-  if (prioritize_downstreams) {
-    // half priority
-    tbl_priority[state->tbl_ind] /= 2;
-    if (tbl_priority[state->tbl_ind] == 0)
-      tbl_priority[state->tbl_ind] = 1;
-  }
+  hard_penal(state->tbl_ind);
   if (state->r >= 0) {
     close(state->r);
   }
@@ -802,6 +824,9 @@ int socks_proxy_reply(int v, SOCKS_STATE *state)
     switch (v) { /* server socks version */
 
     case 4: /* server v:4 */
+      // Test if success
+      if ( buf[1] != S4AGRANTED )
+	soft_penal(state->tbl_ind);
       if ( r < 8 ) {  /* from v4 spec, r should be 8 */
 	/* cannot read server reply */
 	r = -1;
@@ -835,6 +860,9 @@ int socks_proxy_reply(int v, SOCKS_STATE *state)
 	r = -1;
 	break;
       }
+      // Test if success
+      if ( buf[1] != S5AGRANTED )
+	soft_penal(state->tbl_ind);
       switch (state->sr.ver) { /* client ver */
       case 4:
 	/* translate reply v5->v4 */
@@ -1500,7 +1528,8 @@ int lookup_tbl(SOCKS_STATE *state)
   }while(0)
   if (prioritize_downstreams && !tbl_priority) {
     // init priority list
-    tbl_priority = malloc(proxy_tbl_ind * sizeof(int));
+    tbl_priority = malloc((1 + proxy_tbl_ind) * sizeof(int));
+    // Leave proxy_tbl_ind to be an accessible index so as to avoid boundary check
     int y;
     for (y = 0; y < proxy_tbl_ind; ++y)
       tbl_priority[y] = DEFAULT_PRIORITY;
