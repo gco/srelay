@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-dnl $Id: configure.in,v 1.10 2010/12/20 14:11:14 bulkstream Exp $
+dnl $Id$
 AC_INIT(main.c)
 AC_CONFIG_HEADER(config.h)
 AC_CANONICAL_TARGET
@@ -152,7 +152,7 @@ if test "$thread" != "no"; then
 void
 init_routine()
 {
-    return(0);
+    return;
 }
 main()
 {

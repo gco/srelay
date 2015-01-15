@@ -4297,7 +4297,7 @@ cat >>conftest.$ac_ext <<_ACEOF
 void
 init_routine()
 {
-    return(0);
+    return;
 }
 main()
 {

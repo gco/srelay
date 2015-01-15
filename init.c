@@ -1,6 +1,6 @@
 /*
   init.c
-  $Id: init.c,v 1.10 2010/12/20 14:12:00 bulkstream Exp $
+  $Id$
 
 Copyright (C) 2001-2010 Tomo.M (author).
 All rights reserved.

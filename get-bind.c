@@ -1,6 +1,6 @@
 /*
   get-bind.c:
-  $Id: get-bind.c,v 1.10 2010/10/18 05:17:51 bulkstream Exp $
+  $Id$
 
 Copyright (C) 2001-2010 Tomo.M (author).
 All rights reserved.
@@ -423,7 +423,7 @@ int get_bind_addr(bin_addr *dest, struct addrinfo *ba)
 
   close(s);
   /*
-  msg_out(norm,"nlmsg_pid: %d, nlmsg_seq: %d\n",
+  msg_out(norm,"nlmsg_pid: %d, nlmsg_seq: %d",
 	  h->nlmsg_pid, h->nlmsg_seq);
   */
   len = h->nlmsg_len;
@@ -437,11 +437,11 @@ int get_bind_addr(bin_addr *dest, struct addrinfo *ba)
   /*
   if (tb[RTA_DST]) {
     inet_ntop(AF_INET, RTA_DATA(tb[RTA_DST]), str, sizeof(str));
-    msg_out(norm, "DST %s\n", str);
+    msg_out(norm, "DST %s", str);
   }
   if (tb[RTA_GATEWAY]) {
     inet_ntop(AF_INET, RTA_DATA(tb[RTA_GATEWAY]), str, sizeof(str));
-    msg_out(norm, "GW %s\n", str);
+    msg_out(norm, "GW %s", str);
   }
   */
   if (tb[RTA_OIF]) {
@@ -501,7 +501,7 @@ int get_ifconf(int index, struct addrinfo *ba)
 
   close(s);
   /*
-  msg_out(norm,"nlmsg_pid: %d, nlmsg_seq: %d\n",
+  msg_out(norm,"nlmsg_pid: %d, nlmsg_seq: %d",
 	  h->nlmsg_pid, h->nlmsg_seq);
   */
   while (NLMSG_OK(h, status)) {
@@ -519,7 +519,7 @@ int get_ifconf(int index, struct addrinfo *ba)
 	/*
 	  char str[128];
 	  inet_ntop(AF_INET, RTA_DATA(tb[IFA_ADDRESS]), str, sizeof(str));
-	  msg_out(norm, "ADDRESS %s\n", str);
+	  msg_out(norm, "ADDRESS %s", str);
 	*/
 	ba->ai_family = AF_INET;         /* IPv4 */
 	ba->ai_socktype = SOCK_STREAM;
@@ -533,7 +533,7 @@ int get_ifconf(int index, struct addrinfo *ba)
       /*
 	if (tb[IFA_LOCAL]) {
 	unsigned *d = RTA_DATA(tb[IFA_LOCAL]);
-	msg_out(norm, "LOCAL %08x\n", *d);
+	msg_out(norm, "LOCAL %08x", *d);
 	}
       */
     }
