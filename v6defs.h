@@ -1,6 +1,6 @@
 /*
   v6defs.h:
-  $Id$
+  $Id: v6defs.h,v 1.4 2010/10/15 13:40:48 bulkstream Exp $
          IPv6 related definisions mainly for old Solaris.
 
 Copyright (C) 2003-2010 Tomo.M (author).

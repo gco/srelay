@@ -1,6 +1,6 @@
 /*
   readconf.c:
-  $Id$
+  $Id: readconf.c,v 1.16 2010/11/05 02:13:12 bulkstream Exp $
 
 Copyright (C) 2001-2010 Tomo.M (author).
 All rights reserved.
@@ -339,7 +339,7 @@ void add_entry(ROUTE_INFO *r, ROUTE_INFO *t, int ind)
 
 void parse_err(int sev, int line, char *msg)
 {
-  msg_out(sev, "%s: line %d: %s", CONFIG, line, msg);
+  msg_out(sev, "%s: line %d: %s\n", CONFIG, line, msg);
 }
 
 int str_to_addr(char *addr, bin_addr *dest)

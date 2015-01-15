@@ -1,6 +1,6 @@
 /*
   util.c:
-  $Id$
+  $Id: util.c,v 1.12 2010/12/20 14:12:00 bulkstream Exp $
 
 Copyright (C) 2001-2010 Tomo.M (author).
 All rights reserved.
@@ -38,17 +38,11 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "srelay.h"
 
 int forcesyslog = 0;
-int be_quiet = 0;
 
 void msg_out(int severity, const char *fmt, ...)
 {
   va_list ap;
   int priority;
-
-  if ( be_quiet > 0 ) {
-    /* do not log anything */
-    return;
-  }
 
   switch (severity) {
   case crit:
@@ -66,9 +60,6 @@ void msg_out(int severity, const char *fmt, ...)
   va_start(ap, fmt);
   if (fg && !forcesyslog && isatty(fileno(stderr))) {
     vfprintf(stderr, fmt, ap);
-    /* syslog adds a newline if one is not present, do the same here */
-    if (fmt[strlen(fmt) - 1] != '\n')
-      putc('\n', stderr);
   } else {
     vsyslog(priority, fmt, ap);
   }
@@ -98,20 +89,18 @@ int addr_comp(bin_addr *a1, bin_addr *a2, int mask)
 
   inaddr_any.s_addr = INADDR_ANY;
 
-  /*
-    if a2 entry is fqdn wildcard(*), everything is matched.
-    if mask == 0, the mask could not be set in conf or,
-    meaning-less setting. I'd rather guess former.
-  */
-
-  if (a2->atype == S5ATFQDN
-      && strncmp((char *)a2->fqdn, "*", strlen("*")) == 0)
-    return 0;
-
   if (a1->atype != a2->atype)
     return -1;             /* address type mismatched */
 
+  /*
+    if a2 entry is wildcard, everything is matched.
+    if mask == 0, the mask could not be set in conf or,
+    meaning-less setting. I'd rather guess former.
+
+  */
+    
   switch (a1->atype) {
+
   case S5ATIPV4:
     if (memcmp(a2->v4_addr,
 	       &inaddr_any, sizeof inaddr_any) == 0) { /* wild card */
@@ -174,6 +163,10 @@ int addr_comp(bin_addr *a1, bin_addr *a2, int mask)
     break;
 
   case S5ATFQDN:
+    if (strncmp((char *)a2->fqdn, "*", strlen("*")) == 0) { /* wild card */
+      ret = 0;
+      break;
+    }
     if ( a1->len_fqdn >= a2->len_fqdn ) {
       ret = strncasecmp((char *)a2->fqdn,
 			(char *)(&(a1->fqdn[a1->len_fqdn - a2->len_fqdn])),

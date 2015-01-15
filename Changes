@@ -1,13 +1,7 @@
 #
 #  Changes
-#  $Id$
+#  $Id: Changes,v 1.16 2010/10/30 03:02:38 bulkstream Exp $
 #
-
-0.4.8b6 (2013/03/11)
-  + An option '-q' (be quiet) added.
-  + from now, config address pattern '*' matches any address, regardless of
-    address type (i.e. IPv4, IPv6, FQDN).
-
 0.4.8b3 (2010/10/30)
   + initial UDP support
 0.4.8b1 (2010/10/18)

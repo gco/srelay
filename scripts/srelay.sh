@@ -1,7 +1,7 @@
 #!/bin/sh
 #   startup script for srelay
 #   	srelay_enable="Yes" in /etc/rc.conf needed for enable.
-#   $Id$
+#   $Id: srelay.sh,v 1.1 2009/09/02 13:41:40 bulkstream Exp $
 #							Tomo.M
 
 # PROVIDE: srelay

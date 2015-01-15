@@ -1,6 +1,6 @@
 #!/bin/sh
 #   startup script for srelay
-#   $Id$
+#   $Id: svc-srelay,v 1.1 2009/09/02 13:41:40 bulkstream Exp $
 #							Tomo.M
 
 name="srelay"

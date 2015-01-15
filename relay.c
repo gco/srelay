@@ -1,6 +1,6 @@
 /*
   relay.c:
-  $Id$
+  $Id: relay.c,v 1.20 2010/11/05 02:13:12 bulkstream Exp $
 
 Copyright (C) 2001-2010 Tomo.M (author).
 All rights reserved.
