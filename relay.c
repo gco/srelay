@@ -1,6 +1,6 @@
 /*
   relay.c:
-  $Id$
+  $Id: relay.c,v 1.20 2010/11/05 02:13:12 bulkstream Exp $
 
 Copyright (C) 2001-2010 Tomo.M (author).
 All rights reserved.
@@ -61,6 +61,14 @@ int decode_socks_udp __P((UDP_ATTR *, u_char *));
 void relay_tcp __P((SOCKS_STATE *));
 void relay_udp __P((SOCKS_STATE *));
 int log_transfer __P((SOCK_INFO *, LOGINFO *));
+void soft_penal(int index);
+void encourage(int index, int delta);
+
+int mathlog( int x ){
+  int r = 0;
+  while (x >0) { r++; x/=2; }
+  return r;
+}
 
 void readn(rlyinfo *ri)
 {
@@ -314,33 +322,38 @@ void relay_tcp(SOCKS_STATE *state)
 	ri.from = state->r; ri.to = state->s; ri.flags = 0;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
-	else
+	else {
 	  li.bc += wc; li.dnl += wc;
-
+	}
 	FD_CLR(state->r, &rfds);
       }
       if (FD_ISSET(state->r, &xfds)) {
 	ri.from = state->r; ri.to = state->s; ri.flags = MSG_OOB;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
-	else
+	else {
 	  li.bc += wc; li.dnl += wc;
+	}
+	if ( wc < 0 )
+	  soft_penal(state->tbl_ind);
 	FD_CLR(state->r, &xfds);
       }
       if (FD_ISSET(state->s, &rfds)) {
 	ri.from = state->s; ri.to = state->r; ri.flags = 0;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
-	else
+	else {
 	  li.bc += wc; li.upl += wc;
+	}
 	FD_CLR(state->s, &rfds);
       }
       if (FD_ISSET(state->s, &xfds)) {
 	ri.from = state->s; ri.to = state->r; ri.flags = MSG_OOB;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
-	else
+	else {
 	  li.bc += wc; li.upl += wc;
+	}
 	FD_CLR(state->s, &xfds);
       }
       if (done > 0)
@@ -355,6 +368,13 @@ void relay_tcp(SOCKS_STATE *state)
 	  break;
       }
     }
+  }
+  fprintf(stderr, " proxy %d: up=%d, down=%d\n", state->tbl_ind, li.upl, li.dnl);
+  if (li.dnl < 10 && li.upl > 100) {
+    // Error: Timeout or something
+    soft_penal(state->tbl_ind);
+  } else if ( li.dnl > li.upl ) {
+    encourage(state->tbl_ind, (li.dnl/(li.upl+1)) * 64);
   }
   gettimeofday(&li.end, &tz);
   log_transfer(state->si, &li);

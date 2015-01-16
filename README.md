@@ -1,7 +1,23 @@
-Srelay - the SOCKS proxy and Relay
-==================================
+Srelay - the SOCKS proxy and Relay (with Randomized Balancing)
+==============================================================
+phoeagon
 
-Imported from [sourceforge](http://socks-relay.sourceforge.net/).
+Added *randomized* downstream balancing: when multiple rules apply, choose any
+in a random way.
+Added *prioritized random* downstreaming: when multiple downstreams available,
+maintain a list of priorities of each downstream. Penalize a downstream if
+a connection to it fails. Choose a random downstream in prioritized way. (Useful
+for load-balancing multiple SOCKS5 proxy server).
+
+Eg:
+
+		srelay -i 0.0.0.0:9999 \ # Listen on 9999 port
+			-P -R \ # Randomized, prioritized
+			-c config.conf \ # Choose a config file
+			-f  # Stay forground.
+
+The original repo was imported from 
+[sourceforge](http://socks-relay.sourceforge.net/).
 
 What is it?
 ============

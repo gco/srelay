@@ -1,7 +1,7 @@
 #!/bin/bash
 #     startup script for srelay
 #							Tomo.M
-#  $Id$
+#  $Id: rc.srelay,v 1.1 2009/09/02 13:41:40 bulkstream Exp $
 # chkconfig: 345 99 0
 # description: Srelay is a SOCKS proxy.
 

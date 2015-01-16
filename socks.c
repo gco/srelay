@@ -1,6 +1,6 @@
 /*
   socks.c:
-  $Id$
+  $Id: socks.c,v 1.27 2010/11/05 02:13:12 bulkstream Exp $
 
 Copyright (C) 2001-2010 Tomo.M (author).
 All rights reserved.
@@ -33,6 +33,13 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "srelay.h"
+
+extern int prioritize_downstreams;
+extern int random_downstream;
+
+static int * tbl_priority = NULL;
+#define DEFAULT_PRIORITY (512)
+#define MAX_PRIORITY (1024)
 
 #define TIMEOUTSEC    30
 
@@ -118,6 +125,38 @@ int lookup_tbl __P((SOCKS_STATE *));
 int resolv_host __P((bin_addr *, u_int16_t, struct host_info *));
 int log_request __P((SOCKS_STATE *));
 
+void print_priority() {
+  int y;
+  for (y = 0; y < proxy_tbl_ind; ++y)
+    fprintf(stderr, "%d ", tbl_priority[y]);
+  fprintf(stderr, "\n");
+}
+void soft_penal(int index) {
+  if (!prioritize_downstreams) return;
+  tbl_priority[index] *= 0.8;
+  if (tbl_priority[index] == 0)
+    tbl_priority[index] = 1;
+  fprintf(stderr, "Soft Penal #%d out of %d\n", index, proxy_tbl_ind);
+  print_priority();
+}
+void hard_penal(int index) {
+  if (!prioritize_downstreams) return;
+  // half priority
+  tbl_priority[index] /= 2;
+  if (tbl_priority[index] == 0)
+    tbl_priority[index] = 1;
+  fprintf(stderr, "Hard Penal #%d out of %d\n", index, proxy_tbl_ind);
+  print_priority();
+}
+void encourage(int index, int delta) {
+  if (!prioritize_downstreams) return;
+  // increase priority
+  tbl_priority[index] += delta;
+  if (tbl_priority[index] > MAX_PRIORITY)
+    tbl_priority[index] = MAX_PRIORITY;
+  fprintf(stderr, "Encourage #%d out of %d, delta=%d\n", index, proxy_tbl_ind, delta);
+  print_priority();
+}
 
 /*
   proto_socks:
@@ -190,9 +229,11 @@ int proto_socks(SOCKS_STATE *state)
       state->si->prs.len = len;
     }
 
+    encourage(state->tbl_ind, 1);
     return(0);   /* 0: OK */
   }
   /* error */
+  hard_penal(state->tbl_ind);
   if (state->r >= 0) {
     close(state->r);
   }
@@ -559,7 +600,7 @@ int proxy_connect(SOCKS_STATE *state)
   /* relay method must not be DIRECT */
   /* forward socket should not be connected yet */
   if (state->rtbl.rl_meth < 1 || state->r >= 0) {
-    /* should not be here */
+    /* shoud not be here */
     GEN_ERR_REP(state->s, state->sr.ver);
     return(-1);
   }
@@ -783,6 +824,9 @@ int socks_proxy_reply(int v, SOCKS_STATE *state)
     switch (v) { /* server socks version */
 
     case 4: /* server v:4 */
+      // Test if success
+      if ( buf[1] != S4AGRANTED )
+	soft_penal(state->tbl_ind);
       if ( r < 8 ) {  /* from v4 spec, r should be 8 */
 	/* cannot read server reply */
 	r = -1;
@@ -816,6 +860,9 @@ int socks_proxy_reply(int v, SOCKS_STATE *state)
 	r = -1;
 	break;
       }
+      // Test if success
+      if ( buf[1] != S5AGRANTED )
+	soft_penal(state->tbl_ind);
       switch (state->sr.ver) { /* client ver */
       case 4:
 	/* translate reply v5->v4 */
@@ -1473,8 +1520,26 @@ int lookup_tbl(SOCKS_STATE *state)
   struct sockaddr_in  *sa;
   struct sockaddr_in6 *sa6;
 
+  #define MAX_CANDIDATE (32)
+  int candidates[MAX_CANDIDATE];
+  #define ADD(i) do { \
+    if (match < MAX_CANDIDATE) \
+      candidates[ match ++ ] = i;\
+  }while(0)
+  if (prioritize_downstreams && !tbl_priority) {
+    // init priority list
+    tbl_priority = malloc((1 + proxy_tbl_ind) * sizeof(int));
+    // Leave proxy_tbl_ind to be an accessible index so as to avoid boundary check
+    int y;
+    for (y = 0; y < proxy_tbl_ind; ++y)
+      tbl_priority[y] = DEFAULT_PRIORITY;
+  }
+
   match = 0;
   for (i=0; i < proxy_tbl_ind; i++) {
+    /* check atype */
+    if ( state->sr.dest.atype != proxy_tbl[i].dest.atype )
+      continue;
     /* check IP PROTO */
     if ( (state->sr.req == S5REQ_UDPA && proxy_tbl[i].proto == TCP)
 	 || (state->sr.req != S5REQ_UDPA && proxy_tbl[i].proto == UDP))
@@ -1486,8 +1551,9 @@ int lookup_tbl(SOCKS_STATE *state)
 
     if (addr_comp(&(state->sr.dest), &(proxy_tbl[i].dest),
 		  proxy_tbl[i].mask) == 0) {
-      match++;
-      break;
+      ADD(i);
+      if (!random_downstream)
+	break;
     }
   }
 
@@ -1534,12 +1600,12 @@ int lookup_tbl(SOCKS_STATE *state)
 	  if ( addr.atype != proxy_tbl[i].dest.atype )
 	    continue;
 	  if (addr_comp(&addr, &(proxy_tbl[i].dest),
-			proxy_tbl[i].mask) == 0) {
-	    match++;
+			proxy_tbl[i].mask) == 0)
+	    ADD(i);
+	    if (!random_downstream)
 	    break;
-	  }
 	}
-	if ( match )
+	if ( match && !random_downstream)
 	  break;
       }
       freeaddrinfo(res0);
@@ -1549,6 +1615,33 @@ int lookup_tbl(SOCKS_STATE *state)
   memset(&(state->rtbl), 0, sizeof(ROUTE_INFO));
 
   if (match) {
+    if ( random_downstream && match > 1 ) {
+      if (!prioritize_downstreams) {
+	i = candidates[rand() % match];
+      } else {
+	int priority_vector[MAX_CANDIDATE];
+	int y;
+	for (y = 0 ; y < match; ++y)
+	  priority_vector[y] = tbl_priority[candidates[y]];
+	for (y = 1 ; y < match; ++y)
+	  priority_vector[y] += priority_vector[y - 1];
+	int pivot = rand() % priority_vector[match - 1];
+	// binary search the point
+	int l = 0, r = match-1;
+	i = 0;
+	while (l<=r) {
+	  int m = (l + r) / 2;
+	  if ( priority_vector[m] >= pivot ) {
+	    r = m - 1;
+	    i = m;
+	  } else {
+	    l = m + 1;
+	  }
+	}
+	i = candidates[i];
+	// Now i is the selected server
+      }
+    }
     memcpy(&(state->rtbl), &(proxy_tbl[i]), sizeof(ROUTE_INFO));
     state->tbl_ind = i;
   } else

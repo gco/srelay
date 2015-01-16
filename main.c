@@ -1,6 +1,6 @@
 /*
   main.c:
-  $Id$
+  $Id: main.c,v 1.22 2010/12/20 14:12:00 bulkstream Exp $
 
 Copyright (C) 2001-2010 Tomo.M (author).
 All rights reserved.
@@ -59,13 +59,15 @@ int same_interface = 0;
 #ifdef HAVE_LIBWRAP
 int use_tcpwrap = 0;
 # include <tcpd.h>
-# if defined(LINUX) || defined(SOLARIS)
+# ifdef LINUX
 int    allow_severity = LOG_AUTH|LOG_INFO;
 int    deny_severity  = LOG_AUTH|LOG_NOTICE;
 # endif /* LINUX */
 extern int hosts_ctl __P((char *, char *, char *, char *));
 #endif /* HAVE_LIBWRAP */
 
+int prioritize_downstreams = 0; /* If multiple apply, pick by priorities.*/
+int random_downstream = 0; /* If multiple rules apply, pick a random one. */
 int max_child;
 int cur_child;
 
@@ -99,6 +101,8 @@ void usage()
 	  "\t-a np\tauth methods n: no, p:pass\n"
 	  "\t-u file\tsrelay password file\n"
 	  "\t-f\trun into foreground\n"
+    "\t-P\tmaintain priority list of downstreams when multiple apply, implies -R\n"
+    "\t-R\tpick a random downstream if multiply fits\n"
 	  "\t-r\tresolve client name in log\n"
 	  "\t-s\tforce logging to syslog\n"
 	  "\t-t\tdisable threading\n"
@@ -108,7 +112,6 @@ void usage()
 	  "\t-w\tuse tcp_wrapper access control\n"
 #endif /* HAVE_LIBWRAP */
 	  "\t-I\tinetd mode\n"
-	  "\t-q\twill be quiet\n"
 	  "\t-v\tshow version and exit\n"
 	  "\t-h\tshow this help and exit\n");
   exit(1);
@@ -169,8 +172,7 @@ int serv_loop()
 #ifdef USE_THREAD
   if (threading) {
     blocksignal(SIGHUP);
-    if (!fg)
-      blocksignal(SIGINT);
+    blocksignal(SIGINT);
     blocksignal(SIGUSR1);
   }
 #endif
@@ -419,7 +421,7 @@ int main(int ac, char **av)
 
   /* create service socket table (malloc) */
   if (serv_init(NULL) < 0) {
-    msg_out(crit, "cannot malloc: %m");
+    msg_out(crit, "cannot malloc: %m\n");
     exit(-1);
   }
 
@@ -432,7 +434,7 @@ int main(int ac, char **av)
 
   openlog(ident, LOG_PID | LOG_NDELAY, SYSLOGFAC);
 
-  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:frstbwgIqvh?")) != -1)
+  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:fRPrstbwgIvh?")) != -1)
     switch (ch) {
     case 'a':
       if (optarg != NULL) {
@@ -444,7 +446,7 @@ int main(int ac, char **av)
 	    if ( uid != 0 ) {
 	      /* process does not started by root */
 	      msg_out(warn, "uid == %d (!=0),"
-		      "user/pass auth will not work, ignored.",
+		      "user/pass auth will not work, ignored.\n",
 		      uid);
 	      break;
 	    }
@@ -466,6 +468,15 @@ int main(int ac, char **av)
       bind_restrict = 0;
       break;
 
+    case 'P':
+      prioritize_downstreams = 1;
+      random_downstream = 1;
+      break;
+
+    case 'R':
+      random_downstream = 1;
+      break;
+
     case 'c':
       if (optarg != NULL) {
         config = strdup(optarg);
@@ -481,7 +492,7 @@ int main(int ac, char **av)
     case 'i':
       if (optarg != NULL) {
 	if (serv_init(optarg) < 0) {
-	  msg_out(warn, "cannot init server socket(-i %s): %m", optarg);
+	  msg_out(warn, "cannot init server socket(-i %s): %m\n", optarg);
 	  break;
 	}
       }
@@ -548,10 +559,6 @@ int main(int ac, char **av)
       inetd_mode = 1;
       break;
 
-    case 'q':
-      be_quiet = 1;
-      break;
-
     case 'v':
       show_version();
       exit(1);
@@ -564,9 +571,6 @@ int main(int ac, char **av)
 
   ac -= optind;
   av += optind;
-
-  if (fg && !forcesyslog && isatty(fileno(stderr)))
-    setvbuf(stderr, NULL, _IOLBF, 0);
 
   if ((fp = fopen(config, "r")) != NULL) {
     if (readconf(fp) != 0) {
@@ -588,7 +592,7 @@ int main(int ac, char **av)
   if (serv_sock_ind == 0) {   /* no valid ifs yet */
     if (serv_init(":") < 0) { /* use default */
       /* fatal */
-      msg_out(crit, "cannot open server socket");
+      msg_out(crit, "cannot open server socket\n");
       exit(1);
     }
   }
@@ -597,7 +601,7 @@ int main(int ac, char **av)
   if ( ! threading ) {
 #endif
     if (queue_init() != 0) {
-      msg_out(crit, "cannot init signal queue");
+      msg_out(crit, "cannot init signal queue\n");
       exit(1);
     }
 #ifdef USE_THREAD
@@ -655,10 +659,7 @@ int main(int ac, char **av)
   }
 
   setsignal(SIGHUP, reload);
-  if (fg)
-    setsignal(SIGINT, cleanup);
-  else
-    setsignal(SIGINT, SIG_IGN);
+  setsignal(SIGINT, SIG_IGN);
   setsignal(SIGQUIT, SIG_IGN);
   setsignal(SIGILL, SIG_IGN);
   setsignal(SIGTRAP, SIG_IGN);
@@ -666,6 +667,9 @@ int main(int ac, char **av)
 #ifdef SIGEMT
   setsignal(SIGEMT, SIG_IGN);
 #endif
+  setsignal(SIGFPE, SIG_IGN);
+  setsignal(SIGBUS, SIG_IGN);
+  setsignal(SIGSEGV, SIG_IGN);
   setsignal(SIGSYS, SIG_IGN);
   setsignal(SIGPIPE, SIG_IGN);
   setsignal(SIGALRM, SIG_IGN);
