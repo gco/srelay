@@ -1,5 +1,4 @@
 dnl Process this file with autoconf to produce a configure script.
-dnl $Id$
 AC_INIT(main.c)
 AC_CONFIG_HEADER(config.h)
 AC_CANONICAL_TARGET
@@ -28,6 +27,9 @@ case "$build_os" in
 esac
 
 CFLAGS="$CFLAGS -O2 -Wall"
+if test "$OS" = "LINUX"; then
+    CFLAGS="$CFLAGS -Wno-unused-result -Wno-unused-but-set-variable"
+fi
 dnl LDFLAGS="$LDFLAGS -s"
 
 dnl Local libralies.

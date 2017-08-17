@@ -229,9 +229,9 @@ int get_bind_addr(bin_addr *dest, struct addrinfo *ba)
   ent = i; /* number of interfaces */
 
   /* get routing */
-  setreuid(PROCUID, 0);
+  setuid(0);
   sockfd = socket(AF_ROUTE, SOCK_RAW, 0);	/* need superuser privileges */
-  setreuid(0, PROCUID);
+  setreuid(-1, PROCUID);
   if (sockfd < 0) {
     /* socket error */
     return(-1);

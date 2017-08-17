@@ -33,9 +33,9 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "srelay.h"
-#if defined(FREEBSD) || defined(LINUX) || defined(MACOSX)
+#if defined(FREEBSD) || defined(MACOSX)
 #include <pwd.h>
-#elif  SOLARIS
+#elif defined(LINUX) || defined(SOLARIS)
 #include <shadow.h>
 #include <crypt.h>
 #endif
@@ -44,6 +44,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /* proto types */
 int checkpasswd(char *, char *);
+extern int getpasswd __P((bin_addr *, struct user_pass *));
 
 int auth_pwd_server(int s)
 {
@@ -136,33 +137,24 @@ int auth_pwd_client(int s, bin_addr *proxy)
 {
   u_char buf[640];
   int  r, ret, done;
-  FILE *fp = NULL;
   struct user_pass up;
 
   ret = -1; done = 0;
   /* get username/password */
-  if (pwdfile != NULL) {
-    setreuid(PROCUID, 0);
-    fp = fopen(pwdfile, "r");
-    setreuid(0, PROCUID);
-  }
-
-  if ( fp != NULL ) {
-    r = readpasswd(fp, proxy, &up);
-    fclose(fp);
-    if ( r == 0 ) { /* readpasswd gets match */
-      if ( up.ulen >= 1 && up.ulen <= 255
-	   && up.plen >= 1 && up.plen <= 255 ) {
-	/* build auth data */
-	buf[0] = 0x01;
-	buf[1] = up.ulen & 0xff;
-	memcpy(&buf[2], up.user, up.ulen);
-	buf[2+up.ulen] = up.plen & 0xff;
-	memcpy(&buf[2+up.ulen+1], up.pass, up.plen);
-	done++;
-      }
+  r = getpasswd(proxy, &up);
+  if ( r == 0 ) { /* getpasswd gets match */
+    if ( up.ulen >= 1 && up.ulen <= 255
+	 && up.plen >= 1 && up.plen <= 255 ) {
+      /* build auth data */
+      buf[0] = 0x01;
+      buf[1] = up.ulen & 0xff;
+      memcpy(&buf[2], up.user, up.ulen);
+      buf[2+up.ulen] = up.plen & 0xff;
+      memcpy(&buf[2+up.ulen+1], up.pass, up.plen);
+      done++;
     }
   }
+  
   if (! done) {
     /* build fake auth data */
     /* little bit BAD idea */
@@ -199,12 +191,14 @@ int auth_pwd_client(int s, bin_addr *proxy)
 
 int checkpasswd(char *user, char *pass)
 {
-#if defined(FREEBSD) || defined(LINUX) || defined(MACOSX)
-  struct passwd *pwd;
-#elif SOLARIS
-  struct spwd *spwd, sp;
-  char   buf[512];
+
+#if defined(FREEBSD) || defined(MACOSX)
+  struct passwd pwbuf, *pwbufp = &pwbuf;
+#elif defined(LINUX) || defined(SOLARIS)
+  struct spwd spbuf, *spbufp = &spbuf;
 #endif
+
+  char   buf[2048];
   int matched = 0;
 
   if (user == NULL) {
@@ -212,45 +206,51 @@ int checkpasswd(char *user, char *pass)
     return(-1);
   }
 
-#if defined(FREEBSD) || defined(LINUX) || defined(MACOSX)
-  setreuid(PROCUID, 0);
-  pwd = getpwnam(user);
-  setreuid(0, PROCUID);
-  if (pwd == NULL) {
+  setuid(0);
+#if defined(FREEBSD) || defined(MACOSX)
+  getpwnam_r(user, &pwbuf, buf, sizeof(buf), &pwbufp);
+#elif defined(LINUX)
+  getspnam_r(user, &spbuf, buf, sizeof(buf), &spbufp);
+#elif defined(SOLARIS)
+  spbufp = getspnam_r(user, &spbuf, buf, sizeof buf);
+#endif
+  setreuid(-1, PROCUID);
+
+
+#if defined(FREEBSD) || defined(MACOSX)
+  if (pwbufp == NULL) {
     /* error in getpwnam */
     return(-1);
   }
-  if (pwd->pw_passwd == NULL && pass == NULL) {
+  if (pwbufp->pw_passwd == NULL && pass == NULL) {
     /* null password matched */
     return(0);
   }
-  if (*pwd->pw_passwd) {
-    if (strcmp(pwd->pw_passwd, crypt(pass, pwd->pw_passwd)) == 0) {
+  if (*pwbufp->pw_passwd) {
+    if (strcmp(pwbufp->pw_passwd, crypt(pass, pwbufp->pw_passwd)) == 0) {
       matched = 1;
     }
   }
-  memset(pwd->pw_passwd, 0, strlen(pwd->pw_passwd));
 
-#elif SOLARIS
-  setreuid(PROCUID, 0);
-  spwd = getspnam_r(user, &sp, buf, sizeof buf);
-  setreuid(0, PROCUID);
-  if (spwd == NULL) {
-    /* error in getspnam */
+#elif defined(LINUX) || defined(SOLARIS)
+  if (spbufp == NULL) {
+    /* error in getpwnam */
     return(-1);
   }
-  if (spwd->sp_pwdp == NULL && pass == NULL) {
+  if (spbufp->sp_pwdp == NULL && pass == NULL) {
     /* null password matched */
     return(0);
   }
-  if (*spwd->sp_pwdp) {
-    if (strcmp(spwd->sp_pwdp, crypt(pass, spwd->sp_pwdp)) == 0) {
+  if (*spbufp->sp_pwdp) {
+    if (strcmp(spbufp->sp_pwdp, crypt(pass, spbufp->sp_pwdp)) == 0) {
       matched = 1;
     }
   }
-  memset(spwd->sp_pwdp, 0, strlen(spwd->sp_pwdp));
 #endif
 
+  memset(buf, 0, sizeof(buf));
+
+  
   if (matched) {
     return(0);
   } else {

@@ -3,6 +3,11 @@
 #  $Id$
 #
 
+0.4.8b7 (2017/08/16)
+  + bug fix checkpasswd() in auth-pwd.c for LINUX
+  + change readpasswd() to getpasswd() and fix in usage of addr_comp() in readconf.c
+  + use strtok_r() in various tokenize.
+
 0.4.8b6 (2013/03/11)
   + An option '-q' (be quiet) added.
   + from now, config address pattern '*' matches any address, regardless of

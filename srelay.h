@@ -435,7 +435,6 @@ extern int queue_init __P((void));
 
 /* readconf.c */
 extern int readconf __P((FILE *));
-extern int readpasswd __P((FILE *, bin_addr *, struct user_pass *));
 
 /* relay.c */
 extern void relay __P((SOCKS_STATE *));

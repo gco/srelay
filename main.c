@@ -693,8 +693,8 @@ int main(int ac, char **av)
       if (setrlimit(RLIMIT_NOFILE, &rl) != 0)
         msg_out(warn, "cannot set rlimit(max_fd)");
 
-    setregid(0, PROCGID);
-    setreuid(0, PROCUID);
+    setregid(-1, PROCGID);
+    setreuid(-1, PROCUID);
 
     pthread_mutex_init(&mutex_select, NULL);
     pthread_attr_init(&attr);
@@ -713,8 +713,8 @@ int main(int ac, char **av)
   } else {
 #endif
     setsignal(SIGCHLD, reapchild);
-    setregid(0, PROCGID);
-    setreuid(0, PROCUID);
+    setregid(-1, PROCGID);
+    setreuid(-1, PROCUID);
     msg_out(norm, "Starting: MAX_CH(%d)", max_child);
     serv_loop();
 #ifdef USE_THREAD

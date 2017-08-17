@@ -264,9 +264,9 @@ void cleanup()
 {
   /* unlink PID file */
   if (pidfile != NULL) {
-    setreuid(PROCUID, 0);
+    setuid(0);
     unlink(pidfile);
-    setreuid(0, PROCUID);
+    setreuid(-1, PROCUID);
   }
   msg_out(norm, "sig TERM received. exitting...");
   exit(0);

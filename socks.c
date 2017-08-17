@@ -1126,8 +1126,8 @@ int connect_to_http(SOCKS_STATE *state)
 {
   struct host_info dest;
   char   buf[1024];
-  int    error = 0;
   int    c, r, len;
+  int    error;
   SockAddr ss;
   char *p;
 
@@ -1138,7 +1138,7 @@ int connect_to_http(SOCKS_STATE *state)
     return(-1);
   }
 
-  error = resolv_host(&state->sr.dest, state->sr.port, &dest);
+  resolv_host(&state->sr.dest, state->sr.port, &dest);
 
   snprintf(buf, sizeof(buf), "CONNECT %s:%s HTTP/1.0\r\n\r\n",
 	   dest.host, dest.port);
@@ -1346,9 +1346,9 @@ int do_bind(int s, struct addrinfo *ai, u_int16_t p)
 #endif
 
   if (port > 0 && port < IPPORT_RESERVED)
-    setreuid(PROCUID, 0);
+    setuid(0);
   r = bind(s, ai->ai_addr, ai->ai_addrlen);
-  setreuid(0, PROCUID);
+  setreuid(PROCUID, -1);
   return(r);
 }
 
@@ -1364,10 +1364,10 @@ static int do_bindtodevice(int cs, char *dev)
   struct ifreq interface;
 
   strncpy(interface.ifr_name, dev, IFNAMSIZ);
-  setreuid(PROCUID, 0);
+  setuid(0);
   rc = setsockopt(cs, SOL_SOCKET, SO_BINDTODEVICE,
                   (char *)&interface, sizeof(interface));
-  setreuid(0, PROCUID);
+  setreuid(PROCUID, -1);
   if (rc < 0)
     msg_out(crit, "setsockopt SO_BINDTODEVICE(%s) failed: %d", dev, errno);
   return(rc);

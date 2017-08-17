@@ -35,8 +35,6 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "srelay.h"
 
 /* prototypes */
-char *skip   __P((char *));
-char *spell  __P((char *));
 int setport __P((u_int16_t *, char *));
 void add_entry __P((ROUTE_INFO *, ROUTE_INFO *, int));
 void parse_err __P((int, int, char *));
@@ -86,7 +84,7 @@ int    proxy_tbl_ind;         /* next entry indicator */
 
 int readconf(FILE *fp)
 {
-  char		*p, *q, *r, *tok;
+  char		*p, *q, *r, *tok, *last;
   int		len;
   int		n = 0;
   char		*any = "any";
@@ -98,19 +96,18 @@ int readconf(FILE *fp)
   int           px;
 
   while (fp && fgets(buf, MAXLINE-1, fp) != NULL) {
-    memset(&tmp, 0, sizeof(ROUTE_INFO));
-    p = buf;
-    n++;
-
-    if ((p = skip(p)) == NULL) { /* comment line or something */
+    p = strtok_r(buf, " \t,\r\n", &last);
+    if (p == NULL || *p == '#' || *p == ';') {
+      /* comment line or something */
       continue;
     }
-
+    memset(&tmp, 0, sizeof(ROUTE_INFO));
+    n++;
     /* relay method default */
     tmp.rl_meth = DIRECT;
 
     /* destination */
-    tok = p; p = spell(p);
+    tok = p;
     q = strchr(tok, '/');
     /* check wheather dest has address mask */
     if (q != NULL) {
@@ -139,7 +136,8 @@ int readconf(FILE *fp)
       continue;
     }
 
-    if ((p = skip(p)) == NULL) {
+    p = strtok_r(NULL, " \t,;#\r\n", &last);
+    if (p == NULL) {
       parse_err(warn, n, "dest port missing or invalid, ignore this line.");
       continue;
     }
@@ -148,7 +146,7 @@ int readconf(FILE *fp)
     tmp.proto = ANY;
 
     /* dest port */
-    tok = p; p = spell(p);
+    tok = p;
     if ((q = strchr(tok, '/')) != NULL ) {
       *q++ = '\0';  /* delimit */
       len = strlen(q);
@@ -198,7 +196,8 @@ int readconf(FILE *fp)
       continue;
     }
 
-    if ((p = skip(p)) == NULL) {        /* no proxy entry */
+    p = strtok_r(NULL, " \t,;#\r\n", &last);
+    if (p == NULL) {        /* no proxy entry */
       add_entry(&tmp, tmp_tbl, new_proxy_tbl_ind++);
       continue;
     }
@@ -207,7 +206,7 @@ int readconf(FILE *fp)
     /* proxy */
     px = 0;
   Proxy_Loop:
-    tok = p; p = spell(p);
+    tok = p;
     if (str_to_addr(tok, &tmp.prx[px].proxy) != 0) {
       parse_err(warn, n, "proxy address parse error.");
       continue;
@@ -220,14 +219,15 @@ int readconf(FILE *fp)
     tmp.prx[px].pproto = SOCKS;        /* defaults to socks proxy */
 
     /* proxy port */
-    if ((p = skip(p)) == NULL) { /* proxy-port is ommited */
+    p = strtok_r(NULL, " \t,;#\r\n", &last);
+    if (p == NULL) { /* proxy-port is ommited */
       tmp.prx[px].pport = SOCKS_PORT;     /* defaults to socks port */
       add_entry(&tmp, tmp_tbl, new_proxy_tbl_ind++);
       /* remaining data is ignored */
       continue;
 
     } else {
-      tok = p; p = spell(p);
+      tok = p;
       q = strchr(tok, '/');
       /* check wheather port has optional proto */
       if (q != NULL) {
@@ -258,7 +258,8 @@ int readconf(FILE *fp)
       }
     }
     px++;
-    if ((p = skip(p)) == NULL || px >= PROXY_MAX ) {
+    p = strtok_r(NULL, " \t,;#\r\n", &last);
+    if (p == NULL || px >= PROXY_MAX ) {
       add_entry(&tmp, tmp_tbl, new_proxy_tbl_ind++);
       continue;
     } else {
@@ -290,28 +291,6 @@ int readconf(FILE *fp)
   proxy_tbl     = new_proxy_tbl;
   proxy_tbl_ind = new_proxy_tbl_ind;
   return(0);
-}
-
-/*
- *  skip spaces.
- *  return:  0  if delimited.
- *  return: ptr to next token.
- */
-char *skip(char *s)
-{
-  while (SPACES(*s))
-    s++;
-  if (DELIMS(*s))
-    return(NULL);
-  else
-    return(s);
-}
-
-char *spell(char *s) {
-  while (!SPACES(*s) && !DELIMS(*s))
-    s++;
-  *s++ = '\0';
-  return(s);
 }
 
 int setport(u_int16_t *to, char *str) {
@@ -464,11 +443,12 @@ int dot_to_masklen(char *addr)
   return i;
 }
 
+
 /*
-  readpasswd:
-	read from fp, search user and set pass.
+  getpasswd:
+	read from pwdfile, search user and set pass.
 	it is little bit dangerous, that this routine will
-	over-writes arguemts 'user' and 'pass' contents.
+	over-writes arguemts 'struct user_pass' contents.
     File format:
     # comment
     # proxy-host-ip/name   user    passwd
@@ -476,65 +456,87 @@ int dot_to_masklen(char *addr)
     mxs001.c-wind.com      bob     foobar
 
 */
-int readpasswd(FILE *fp, bin_addr *proxy, struct user_pass *up)
+int getpasswd(bin_addr *proxy, struct user_pass *up)
 {
+  FILE     *fp;
   char     buf[MAXLINE];
-  char     *p, *tok;
-  int      len;
+  char     *p, *tok, *last;
+  int      len, done = 0;
   bin_addr addr;
 
   memset(up, 0, sizeof(struct user_pass));
 
+  if (pwdfile == NULL) {  /* pwdfile: global variable */
+    return(-1);
+  }
+
+  setuid(0);
+  fp = fopen(pwdfile, "r");
+  setreuid(-1, PROCUID);
+
+  if ( fp == NULL )
+    return(-1);
+
   while (fgets(buf, MAXLINE-1, fp) != NULL) {
-    p = buf; tok = 0;
-    if ((p = skip(p)) == NULL) { /* comment line or something */
+    p = strtok_r(buf, " \t,\r\n", &last);
+    if (p == NULL || *p == '#' || *p == ';') {
+      /* comment line or something */
       continue;
     }
-
     memset(&addr, 0, sizeof(addr));
     /* proxy host ip/name entry */
-    tok = p; p = spell(p); len = strlen(tok);
+    tok = p; len = strlen(tok);
     if (str_to_addr(tok, &addr) != 0)  /* error */
       continue;
 
-    if (addr_comp(proxy, &addr, 0) < 0) {
+    if (addr_comp(proxy, &addr, 0) != 0) {
+      /* address not match */
       continue;
     }
-
-    if ((p = skip(p)) == NULL) {
+ 
+    p = strtok_r(NULL, " \t,;#\r\n", &last);
+    if (p == NULL) {
       /* insufficient fields, ignore this line */
       continue;
     }
 
-    tok = p; p = spell(p); len = strlen(tok); 
-    if (len < USER_PASS_MAX) {
-      strncpy(up->user, tok, len);
-      up->user[len] = '\0';
-      up->ulen = len;
-    } else {
+    tok = p; len = strlen(tok);
+    if (len >= USER_PASS_MAX) {
       /* invalid length, ignore this line */
       continue;
     }
+  
+    strncpy(up->user, tok, len);
+    up->user[len] = '\0';
+    up->ulen = len;
 
-    if ((p = skip(p)) == NULL) {
+    p = strtok_r(NULL, " \t,;#\r\n", &last);
+    if (p == NULL) {
       /* insufficient fields, ignore this line */
       continue;
     }
 
-    tok = p; p = spell(p); len = strlen(tok);
-    if (len < USER_PASS_MAX) {
-      strncpy(up->pass, tok, len);
-      up->pass[len] = '\0';
-      up->plen = len;
-      /* OK, this is enough, */
-      return(0);
-    } else {
+    tok = p; len = strlen(tok);
+    if (len >= USER_PASS_MAX) {
       /* invalid length, ignore this line */
       continue;
     }
+
+    strncpy(up->pass, tok, len);
+    up->pass[len] = '\0';
+    up->plen = len;
+    /* OK, that's it */
+    done++;
+    break;
   }
+
+  fclose(fp);
+  if (done)
+    return(0);
+
   /* matching entry not found or error */
   return(-1);
+
 }
 
 #if 0
@@ -552,9 +554,11 @@ int sig_queue[2];
 int threading;
 pthread_t main_thread;
 char *config;
+int fg;
 /* dummy */
 
-extern int resolve_host(bin_addr *, u_int16_t, struct host_info *)
+/*
+extern int resolve_host (bin_addr *, u_int16_t, struct host_info *);
 
 void dump_entry();
 {
@@ -582,8 +586,9 @@ void dump_entry();
     }
   }
 }
+*/
 
-void checkpwd(char *user, bin_addr *proxy, struct user_pass *up)
+void checkpwd(bin_addr *proxy, struct user_pass *up)
 {
   FILE *fp;
 
@@ -592,7 +597,7 @@ void checkpwd(char *user, bin_addr *proxy, struct user_pass *up)
     return;
   }
   if (readpasswd(fp, proxy, up) == 0) {
-    fprintf(stdout, "%s\n", up->pass);
+    fprintf(stdout, "%s %s\n", up->user, up->pass);
   }
 
 }
@@ -600,7 +605,11 @@ void checkpwd(char *user, bin_addr *proxy, struct user_pass *up)
 int main(int argc, char **argv) {
 
   FILE *fp;
-
+  bin_addr proxy;
+  struct user_pass up;
+  char buf[128];
+  
+  /*
   if (argc < 2) {
     fprintf(stderr, "need args\n");
     return(1);
@@ -615,6 +624,12 @@ int main(int argc, char **argv) {
 
   dump_entry();
   return(0);
+  */
+
+  
+  int r = str_to_addr("ab7.def.com", &proxy);
+  printf("%d %s\n", r, inet_ntop(AF_INET, proxy.v4_addr, buf, sizeof buf));
+  checkpwd(&proxy, &up);
 
 }
 #endif
