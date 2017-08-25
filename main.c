@@ -45,6 +45,7 @@ char *config = CONFIG;
 char *ident = "srelay";
 char *pidfile = PIDFILE;
 char *pwdfile = NULL;
+char *localpwd = NULL;
 char *bindtodevice = NULL;
 pid_t master_pid;
 
@@ -98,6 +99,7 @@ void usage()
 	  "\t-p file\tpid file\n"
 	  "\t-a np\tauth methods n: no, p:pass\n"
 	  "\t-u file\tsrelay password file\n"
+	  "\t-U file\tsrelay local user base file\n"
 	  "\t-f\trun into foreground\n"
 	  "\t-r\tresolve client name in log\n"
 	  "\t-s\tforce logging to syslog\n"
@@ -431,7 +433,7 @@ int main(int ac, char **av)
 
   openlog(ident, LOG_PID | LOG_NDELAY, SYSLOGFAC);
 
-  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:frstbwgIqvh?")) != -1)
+  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:U:frstbwgIqvh?")) != -1)
     switch (ch) {
     case 'a':
       if (optarg != NULL) {
@@ -443,9 +445,8 @@ int main(int ac, char **av)
 	    if ( uid != 0 ) {
 	      /* process does not started by root */
 	      msg_out(warn, "uid == %d (!=0),"
-		      "user/pass auth will not work, ignored.\n",
+		      "user/pass auth may not work - option accepted anyway.\n",
 		      uid);
-	      break;
 	    }
 	    method_tab[i++] = S5AUSRPAS;
 	    method_num++;
@@ -474,6 +475,12 @@ int main(int ac, char **av)
     case 'u':
       if (optarg != NULL) {
         pwdfile = strdup(optarg);
+      }
+      break;
+
+    case 'U':
+      if (optarg != NULL) {
+        localpwd = strdup(optarg);
       }
       break;
 

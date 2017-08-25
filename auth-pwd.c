@@ -45,6 +45,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /* proto types */
 int checkpasswd(char *, char *);
 extern int getpasswd __P((bin_addr *, struct user_pass *));
+extern int checklocalpwd __P((char *, char *));
 
 int auth_pwd_server(int s)
 {
@@ -54,7 +55,6 @@ int auth_pwd_server(int s)
   char pass[256];
   struct sockaddr_storage client;
   char client_ip[NI_MAXHOST];
-  int  error = 0;
   int  code = 0;
 
   r = timerd_read(s, buf, sizeof(buf), TIMEOUTSEC, MSG_PEEK);
@@ -98,22 +98,27 @@ int auth_pwd_server(int s)
   strncpy(pass, (char *)&buf[1], len);
   pass[len] = '\0';
 
-  /* do authentication */
-  r = checkpasswd(user, pass);
-
   /* logging */
   len = sizeof(struct sockaddr_storage);
-  if (getpeername(s, (struct sockaddr *)&client, (socklen_t *)&len) != 0) {
-    client_ip[0] = '\0';
+  if (getpeername(s, (struct sockaddr *)&client, (socklen_t *)&len) == 0
+      && getnameinfo((struct sockaddr *)&client, len,
+		     client_ip, sizeof(client_ip),
+		     NULL, 0, NI_NUMERICHOST) == 0) {
+    ;; /* OK */
   } else {
-    error = getnameinfo((struct sockaddr *)&client, len,
-			client_ip, sizeof(client_ip),
-			NULL, 0, NI_NUMERICHOST);
-    if (error) {
-      client_ip[0] = '\0';
-    }
+    client_ip[0] = '\0';
   }
-  msg_out(norm, "%s 5-U/P_AUTH %s %s.", client_ip,
+
+  /* do authentication */
+  if (localpwd != NULL) {
+    r = checklocalpwd(user, pass);
+  } else {
+    r = checkpasswd(user, pass);
+  }
+
+  msg_out(norm, "%s 5-U/P_AUTH for %s using %s.", client_ip,
+	  user, (localpwd != NULL) ? "Local pwd" : "System pwd");
+  msg_out(norm, "%s 5-U/P_AUTH for %s %s.", client_ip,
 	  user, r == 0 ? "accepted" : "denied");
 
   /* erace uname and passwd storage */

@@ -3,6 +3,12 @@
 #  $Id$
 #
 
+0.4.8b8 (2017/08/25)
+  + user/pass authentication against local(private, non-system) password database (-U)
+  + local password database generator script(python) is scripts/srpasswd.py
+    <<INCOMPATIBILITY>>
+  + IPv6 address (in srelay.{conf,passwd}) must be surrounded by '[' and ']' (str_to_addr())
+
 0.4.8b7 (2017/08/16)
   + bug fix checkpasswd() in auth-pwd.c for LINUX
   + change readpasswd() to getpasswd() and fix in usage of addr_comp() in readconf.c

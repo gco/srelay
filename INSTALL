@@ -102,6 +102,7 @@ o FreeBSD
     line.
 
 o Linux
+    >>> INIT based systems
     scripts/rc.srelay is a sample for Linux. you can register
     srelay as 'srelay' service,
     	 # cp rc.srelay /etc/init.d/srelay
@@ -114,6 +115,13 @@ o Linux
 
     unregister it,
     	 # chkconfig --del srelay
+
+    >>> Systemd based systems
+    scripts/srelay.service is a sample systemd unit file.
+    	 # cp srelay.service /etc/systemd/system/.
+	 # systemctl daemon-reload
+	 # systemctl start srelay.service
+	 # systemctl enable srelay
 
 
 o LIBBIND INSTALL
@@ -146,3 +154,20 @@ o LIBBIND INSTALL
 	% env LIBS="-L/path/to/temp/usr/local/lib" \
 	  ./configure --with-libbind=/path/to/temp/usr/local/bind
 	% make
+
+o SOCKS user/password authentication
+    Socks v5 supports primitive user/password authentication.
+    srelay supports this auth protocol by implementing authorized
+    user of hosted OS account can access to this service.
+    OTOH this protocol, by nature, naughtily exposes bare password
+    on network, so your OS account's passwords will be in public
+    if you use this implementation w/o encrypted channel.
+    I have addedd a little scarce measure to address this,
+    'local password' option '-U filename'. very similar file format
+    to apache's htpasswd, but its hash is quite differ from apache.
+    So the password hash format is from Linux glibc crypt(3),
+    you have to generate using e.g. scripts/srpasswd.py included in
+    this package or compatible programs.
+    Please do not think this is a security improvement, you must
+    do with secure encrypted channel and other security technics
+    to assure your data protection, obviously.

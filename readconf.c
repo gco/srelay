@@ -324,23 +324,26 @@ void parse_err(int sev, int line, char *msg)
 int str_to_addr(char *addr, bin_addr *dest)
 {
   char     *q;
-  int	   len, i, c;
+  int	   len;
   struct addrinfo hints, *res0, *res;
   int      error;
   struct sockaddr_in   *sa;
   struct sockaddr_in6  *sa6;
 
   /* check address type */
-  q = strchr(addr, ':');
-  if (q != NULL) {
+  /* IPv4 10.1.2.3
+     IPv6 [2001:dead::beef]
+     FQDN www.auuuu.com
+  */
+  if ( strchr(addr, ':') != NULL && (q = strchr(addr, '[')) != NULL ) {
+    addr++;
+    if ( (q = strchr(addr, ']')) != NULL )
+      *q = '\0';
     dest->atype = S5ATIPV6;
   } else {
     dest->atype = S5ATIPV4;
-    len = strlen(addr);
-    for (i=0; i<len; i++) {
-      c = *(addr+i);
-      if ( c != '.' && (c < '0' || c > '9')) {
-	/* addr contains non-numeric character */
+    for (q = addr; q < addr+strlen(addr); q++) {
+      if (strchr("0123456789.", (int)(*q)) == NULL) {
 	dest->atype = S5ATFQDN;
 	break;
       }
@@ -534,6 +537,48 @@ int getpasswd(bin_addr *proxy, struct user_pass *up)
   if (done)
     return(0);
 
+  /* matching entry not found or error */
+  return(-1);
+
+}
+
+int checklocalpwd(char *user, char *pass)
+{
+  FILE     *fp;
+  char     buf[MAXLINE];
+  char     *p, *tok;
+  int      matched = 0;
+
+  if (localpwd == NULL
+      || (fp = fopen(localpwd, "r")) == NULL) {  /* localpwd: global variable */
+    return(-1);
+  }
+
+  while (fgets(buf, MAXLINE-1, fp) != NULL) {
+    p = tok = buf;
+    if (*p == '#' || *p == ';')
+      continue;    /* ignore comment line */
+
+    if ((p = strchr(tok, ':')) == NULL)
+      continue;    /* ignore invalid record */
+
+    *p++ = '\0';
+    if (strncmp(user, tok, strlen(user)) != 0)
+      continue;
+
+    tok = p;
+    if ((p = strpbrk(tok, " \t\r\n")) != NULL)
+      *p = '\0';
+
+    if (strcmp(tok, crypt(pass, tok)) == 0) {
+      matched++;
+      break;
+    }
+  }
+
+  fclose(fp);
+  if (matched)
+    return(0);
   /* matching entry not found or error */
   return(-1);
 
