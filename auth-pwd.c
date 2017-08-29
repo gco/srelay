@@ -189,7 +189,7 @@ int auth_pwd_client(int s, bin_addr *proxy)
   }
  err_ret:
 
-  /* erace uname and passwd storage */
+  /* erase uname and passwd storage */
   memset(&up, 0, sizeof(struct user_pass));
   return(ret);
 }
