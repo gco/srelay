@@ -121,7 +121,7 @@ int auth_pwd_server(int s)
   msg_out(norm, "%s 5-U/P_AUTH for %s %s.", client_ip,
 	  user, r == 0 ? "accepted" : "denied");
 
-  /* erace uname and passwd storage */
+  /* erase uname and passwd storage */
   memset(user, 0, sizeof(user));
   memset(pass, 0, sizeof(pass));
 

@@ -75,7 +75,7 @@ int inetd_mode = 0;  /* inetd mode */
 int bind_restrict = 1; /* socks bind port is restricted */
 
 /* authentication method priority table */
-char method_tab[10];
+char method_tab[MAX_AUTH_METH+1];
 int method_num;
 
 void show_version()
@@ -399,6 +399,7 @@ int inetd_service(int cs)
 int main(int ac, char **av)
 {
   int     ch, i=0;
+  char    *p;
   pid_t   pid;
   FILE    *fp;
   uid_t   uid;
@@ -428,34 +429,34 @@ int main(int ac, char **av)
   proxy_tbl_ind = 0;
 
   method_num = 0;
+  method_tab[0] = '\0';
 
   uid = getuid();
 
   openlog(ident, LOG_PID | LOG_NDELAY, SYSLOGFAC);
 
-  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:U:frstbwgIqvh?")) != -1)
+  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:U:frstbwgIqvh?")) != -1) {
     switch (ch) {
     case 'a':
       if (optarg != NULL) {
-	for (i=0; i<sizeof method_tab; optarg++) {
-	  if (*optarg == '\0')
+	if (strchr(optarg, 'n') != NULL) {
+	  /* no-auth resets any other options */
+	  method_num = 0;  /* reset auth methods */
 	    break;
-	  switch (*optarg) {
-	  case 'p':
-	    if ( uid != 0 ) {
-	      /* process does not started by root */
-	      msg_out(warn, "uid == %d (!=0),"
-		      "user/pass auth may not work - option accepted anyway.\n",
-		      uid);
 	    }
-	    method_tab[i++] = S5AUSRPAS;
-	    method_num++;
+
+	for (p=optarg, i=0; method_num < MAX_AUTH_METH && i < MAX_AUTH_METH; p++, i++) {
+	  if (*p == '\0')
 	    break;
-	  case 'n':
-	    method_tab[i++] = S5ANOAUTH;
+	  switch (*p) {
+	  case 'p':
+	    if (memchr(method_tab, 'p', method_num) == NULL) {
+	      method_tab[method_num] = S5AUSRPAS;
 	    method_num++;
+	    }
 	    break;
 	  default:
+	    /* un-supported/invalid method */
 	    break;
 	  }
 	}
@@ -567,6 +568,7 @@ int main(int ac, char **av)
     default:
       usage();
     }
+  }
 
   ac -= optind;
   av += optind;
@@ -577,6 +579,15 @@ int main(int ac, char **av)
       exit(1);
     }
     fclose(fp);
+  }
+
+  if ( method_num > 0
+       && uid != 0
+       && memchr(method_tab, 'p', method_num) != NULL
+       && localpwd == NULL) {
+    /* process does not started by root */
+    msg_out(warn, "uid == %d (!=0),"
+	    "user/pass auth may not work.\n", uid);
   }
 
   if (inetd_mode) {

@@ -389,8 +389,9 @@ extern char *localpwd;
 extern char *bindtodevice;
 extern int max_child;
 extern int cur_child;
-extern char method_tab[];
+#define MAX_AUTH_METH  10
 extern int method_num;
+extern char method_tab[];
 extern int bind_restrict;
 extern int same_interface;
 #ifdef HAVE_LIBWRAP
