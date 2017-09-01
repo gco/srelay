@@ -197,6 +197,11 @@ extern int threading;
 
 enum { norm=0, warn, crit };
 
+#define DEBUG(level, ...)           \
+  do {                      \
+    if (verbosity >= (level))       \
+        msg_out(norm, __VA_ARGS__); \
+  } while(0);
 
 /*
  *  SOCKS protocol related definitions
@@ -399,6 +404,7 @@ extern int use_tcpwrap;
 #endif /* HAVE_LIBWRAP */
 extern int fg;		/* foreground operation */
 extern int inetd_mode;  /* inetd mode */
+extern int verbosity;   /* logging verbosity */
 
 /* from init.c */
 extern char **str_serv_sock;

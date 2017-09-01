@@ -75,8 +75,10 @@ int inetd_mode = 0;  /* inetd mode */
 int bind_restrict = 1; /* socks bind port is restricted */
 
 /* authentication method priority table */
-char method_tab[MAX_AUTH_METH+1];
 int method_num;
+char method_tab[MAX_AUTH_METH+1];
+
+int verbosity = 0;
 
 void show_version()
 {
@@ -111,7 +113,8 @@ void usage()
 #endif /* HAVE_LIBWRAP */
 	  "\t-I\tinetd mode\n"
 	  "\t-q\twill be quiet\n"
-	  "\t-v\tshow version and exit\n"
+	  "\t-v\tincrease verbosity\n"
+	  "\t-V\tshow version and exit\n"
 	  "\t-h\tshow this help and exit\n");
   exit(1);
 }
@@ -435,7 +438,7 @@ int main(int ac, char **av)
 
   openlog(ident, LOG_PID | LOG_NDELAY, SYSLOGFAC);
 
-  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:U:frstbwgIqvh?")) != -1) {
+  while((ch = getopt(ac, av, "a:c:i:J:m:o:p:u:U:frstbwgIqvVh?")) != -1) {
     switch (ch) {
     case 'a':
       if (optarg != NULL) {
@@ -560,6 +563,10 @@ int main(int ac, char **av)
       break;
 
     case 'v':
+      verbosity++;
+      break;
+
+    case 'V':
       show_version();
       exit(1);
 

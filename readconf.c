@@ -449,25 +449,25 @@ int dot_to_masklen(char *addr)
 
 /*
   getpasswd:
-	read from pwdfile, search user and set pass.
+    read from pwdfile, search proxy and set user and pass.
 	it is little bit dangerous, that this routine will
 	over-writes arguemts 'struct user_pass' contents.
+    if user_pass * is null, just check existence of
+    valid proxy entry.
+    TODO: proxy entry should include proxy-port.
     File format:
     # comment
     # proxy-host-ip/name   user    passwd
     10.0.1.117             tomo    hogerata
     mxs001.c-wind.com      bob     foobar
-
 */
 int getpasswd(bin_addr *proxy, struct user_pass *up)
 {
   FILE     *fp;
   char     buf[MAXLINE];
-  char     *p, *tok, *last;
+  char     *p, *tok, *host, *last;
   int      len, done = 0;
   bin_addr addr;
-
-  memset(up, 0, sizeof(struct user_pass));
 
   if (pwdfile == NULL) {  /* pwdfile: global variable */
     return(-1);
@@ -477,8 +477,10 @@ int getpasswd(bin_addr *proxy, struct user_pass *up)
   fp = fopen(pwdfile, "r");
   setreuid(-1, PROCUID);
 
-  if ( fp == NULL )
+  if ( fp == NULL ) {
+    DEBUG(2, "getpasswd(): cannot open pwdfile(%s)", pwdfile);
     return(-1);
+  }
 
   while (fgets(buf, MAXLINE-1, fp) != NULL) {
     p = strtok_r(buf, " \t,\r\n", &last);
@@ -492,6 +494,7 @@ int getpasswd(bin_addr *proxy, struct user_pass *up)
     if (str_to_addr(tok, &addr) != 0)  /* error */
       continue;
 
+    host = tok;
     if (addr_comp(proxy, &addr, 0) != 0) {
       /* address not match */
       continue;
@@ -509,9 +512,12 @@ int getpasswd(bin_addr *proxy, struct user_pass *up)
       continue;
     }
   
+    if (up != NULL) {
+      memset(up, 0, sizeof(struct user_pass));
     strncpy(up->user, tok, len);
     up->user[len] = '\0';
     up->ulen = len;
+    }
 
     p = strtok_r(NULL, " \t,;#\r\n", &last);
     if (p == NULL) {
@@ -525,17 +531,21 @@ int getpasswd(bin_addr *proxy, struct user_pass *up)
       continue;
     }
 
+    if (up != NULL) {
     strncpy(up->pass, tok, len);
     up->pass[len] = '\0';
     up->plen = len;
-    /* OK, that's it */
+    }
+    /* OK, that's done */
     done++;
     break;
   }
 
   fclose(fp);
-  if (done)
+  if (done) {
+    DEBUG(2, "getpasswd(): matched dest host found(%s)", host);
     return(0);
+  }
 
   /* matching entry not found or error */
   return(-1);
@@ -551,6 +561,7 @@ int checklocalpwd(char *user, char *pass)
 
   if (localpwd == NULL
       || (fp = fopen(localpwd, "r")) == NULL) {  /* localpwd: global variable */
+    DEBUG(2, "checklocalpwd(): cannot open localpwd(%s)", localpwd);
     return(-1);
   }
 
@@ -635,13 +646,7 @@ void dump_entry();
 
 void checkpwd(bin_addr *proxy, struct user_pass *up)
 {
-  FILE *fp;
-
-  if ( (fp = fopen(PWDFILE, "r")) == NULL ) {
-    fprintf(stderr, "cannot open %s\n", PWDFILE);
-    return;
-  }
-  if (readpasswd(fp, proxy, up) == 0) {
+  if (getasswd(proxy, up) == 0) {
     fprintf(stdout, "%s %s\n", up->user, up->pass);
   }
 

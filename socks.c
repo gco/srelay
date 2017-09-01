@@ -34,6 +34,8 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "srelay.h"
 
+extern int getpasswd __P((bin_addr *, struct user_pass *));
+
 #define TIMEOUTSEC    30
 
 #define GEN_ERR_REP(s, v) \
@@ -1092,7 +1094,7 @@ int s5auth_c(int s, bin_addr *proxy)
   buf[2] = S5ANOAUTH;   /* no authentication */
   num = 3;
 
-  if ( pwdfile != NULL ) {
+  if (getpasswd(proxy, NULL) == 0 ) {
     buf[1] = 2;
     buf[3] = S5AUSRPAS;   /* username/passwd authentication */
     num++;
