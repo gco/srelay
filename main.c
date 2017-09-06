@@ -676,7 +676,9 @@ int main(int ac, char **av)
   }
 
   setsignal(SIGHUP, reload);
+  if (!isatty(fileno(stdin))) {
   setsignal(SIGINT, SIG_IGN);
+  }
   setsignal(SIGQUIT, SIG_IGN);
   setsignal(SIGILL, SIG_IGN);
   setsignal(SIGTRAP, SIG_IGN);

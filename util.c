@@ -35,6 +35,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdarg.h>
 #include <fcntl.h>
 #include <sys/wait.h>
+#include <time.h>
 #include "srelay.h"
 
 int forcesyslog = 0;
@@ -44,6 +45,10 @@ void msg_out(int severity, const char *fmt, ...)
 {
   va_list ap;
   int priority;
+  time_t    ts;
+  struct tm stamp;
+  char   timestr[64];
+  char   host[256];
 
   if ( be_quiet > 0 ) {
     /* do not log anything */
@@ -63,13 +68,21 @@ void msg_out(int severity, const char *fmt, ...)
     break;
   }
 
+  if (fg && !forcesyslog) {
+    time(&ts);
+    gethostname(host, sizeof(host));
+    strftime(timestr, sizeof(timestr), "%b %e %T", localtime_r(&ts, &stamp));
+    fprintf(stderr, "%s %s ", timestr, host);
   va_start(ap, fmt);
-  if (fg && !forcesyslog && isatty(fileno(stderr))) {
     vfprintf(stderr, fmt, ap);
+    va_end(ap);
+    fprintf(stderr, "\n");
   } else {
+    va_start(ap, fmt);
     vsyslog(priority, fmt, ap);
-  }
   va_end(ap);
+  }
+  fflush(NULL);
 }
 
 /*
