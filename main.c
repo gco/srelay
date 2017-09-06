@@ -119,6 +119,39 @@ void usage()
   exit(1);
 }
 
+void signal_setup()
+{
+
+  setsignal(SIGHUP, reload);
+  if (!isatty(fileno(stdin))) {
+    setsignal(SIGINT, SIG_IGN);
+  }
+  setsignal(SIGQUIT, SIG_IGN);
+  setsignal(SIGILL, SIG_IGN);
+  setsignal(SIGTRAP, SIG_IGN);
+  setsignal(SIGABRT, SIG_IGN);
+#ifdef SIGEMT
+  setsignal(SIGEMT, SIG_IGN);
+#endif
+  setsignal(SIGFPE, SIG_IGN);
+  setsignal(SIGBUS, SIG_IGN);
+  setsignal(SIGSEGV, SIG_IGN);
+  setsignal(SIGSYS, SIG_IGN);
+  setsignal(SIGPIPE, SIG_IGN);
+  setsignal(SIGALRM, SIG_IGN);
+  setsignal(SIGTERM, cleanup);
+  setsignal(SIGUSR1, SIG_IGN);
+  setsignal(SIGUSR2, SIG_IGN);
+#ifdef SIGPOLL
+  setsignal(SIGPOLL, SIG_IGN);
+#endif
+  setsignal(SIGVTALRM, SIG_IGN);
+  setsignal(SIGPROF, SIG_IGN);
+  setsignal(SIGXCPU, SIG_IGN);
+  setsignal(SIGXFSZ, SIG_IGN);
+
+}
+
 int validate_access(CL_INFO *client)
 {
   int stat = 0;
@@ -174,8 +207,6 @@ int serv_loop()
 #ifdef USE_THREAD
   if (threading) {
     blocksignal(SIGHUP);
-    blocksignal(SIGINT);
-    blocksignal(SIGUSR1);
   }
 #endif
 
@@ -357,6 +388,8 @@ int inetd_service(int cs)
   memset(&state, 0, sizeof(state));
   memset(&si, 0, sizeof(si));
   state.si = &si;
+
+  signal_setup();
 
   /* get downstream-side socket name */
   len = SS_LEN;
@@ -675,33 +708,7 @@ int main(int ac, char **av)
     msg_out(warn, "cannot open pidfile %s", pidfile);
   }
 
-  setsignal(SIGHUP, reload);
-  if (!isatty(fileno(stdin))) {
-  setsignal(SIGINT, SIG_IGN);
-  }
-  setsignal(SIGQUIT, SIG_IGN);
-  setsignal(SIGILL, SIG_IGN);
-  setsignal(SIGTRAP, SIG_IGN);
-  setsignal(SIGABRT, SIG_IGN);
-#ifdef SIGEMT
-  setsignal(SIGEMT, SIG_IGN);
-#endif
-  setsignal(SIGFPE, SIG_IGN);
-  setsignal(SIGBUS, SIG_IGN);
-  setsignal(SIGSEGV, SIG_IGN);
-  setsignal(SIGSYS, SIG_IGN);
-  setsignal(SIGPIPE, SIG_IGN);
-  setsignal(SIGALRM, SIG_IGN);
-  setsignal(SIGTERM, cleanup);
-  setsignal(SIGUSR1, SIG_IGN);
-  setsignal(SIGUSR2, SIG_IGN);
-#ifdef SIGPOLL
-  setsignal(SIGPOLL, SIG_IGN);
-#endif
-  setsignal(SIGVTALRM, SIG_IGN);
-  setsignal(SIGPROF, SIG_IGN);
-  setsignal(SIGXCPU, SIG_IGN);
-  setsignal(SIGXFSZ, SIG_IGN);
+  signal_setup();
 
 #ifdef USE_THREAD
   if ( threading ) {
