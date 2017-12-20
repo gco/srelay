@@ -1232,6 +1232,7 @@ int forward_connect(SOCKS_STATE *state)
     cs = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
     if ( cs < 0 ) {
       /* socket error */
+      error = errno;
       continue;
     }
 
@@ -1259,20 +1260,22 @@ int forward_connect(SOCKS_STATE *state)
       }
     }
 
-    if (connect(cs, res->ai_addr, res->ai_addrlen) < 0) {
+    if (connect(cs, res->ai_addr, res->ai_addrlen) == 0) {
+      error = 0;
+      break;
+    } else {
       /* connect fail */
       error = errno;
       close(cs);
       continue;
     }
-    break;
   }
   freeaddrinfo(res0);
 
   msg_out(norm, "Forward connect to %s:%s rc=%d",
 	  dest.host, dest.port, error);
   state->r = cs;
-  if (cs >= 0)
+  if (cs >= 0 && error == 0)
     return(0);
   else
     return(-1);

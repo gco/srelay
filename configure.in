@@ -154,7 +154,7 @@ if test "$thread" != "no"; then
 void
 init_routine()
 {
-    return(0);
+    return;
 }
 main()
 {
