@@ -421,3 +421,41 @@ void proclist_probe()
   if (cur_child < 0)
     cur_child = 0;
 }
+
+/* base64 encode / pinched from the net */
+const char *base64_chars =
+"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+char *base64_encode(const char *str)
+{
+  static char *buf;
+  unsigned char *src;
+  unsigned char *dst;
+  int bits, data, src_len, dst_len;
+
+  src_len = strlen(str);
+  dst_len = (src_len+2)/3*4;
+  buf = malloc(dst_len+1);
+  bits = data = 0;
+  src = (unsigned char *)str;
+  dst = (unsigned char *)buf;
+  while ( dst_len-- ) {
+    if ( bits < 6 ) {
+      data = (data << 8) | *src;
+      bits += 8;
+      if ( *src != 0 )
+	src++;
+    }
+    *dst++ = base64_chars[0x3F & (data >> (bits-6))];
+    bits -= 6;
+  }
+  *dst = '\0';
+  /* fix-up tail padding */
+  switch ( src_len%3 ) {
+  case 1:
+    *--dst = '=';
+  case 2:
+    *--dst = '=';
+  }
+  return buf;
+}

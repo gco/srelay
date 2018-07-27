@@ -109,7 +109,7 @@ int readconf(FILE *fp)
     /* destination */
     tok = p;
     q = strchr(tok, '/');
-    /* check wheather dest has address mask */
+    /* check whether dest has address mask */
     if (q != NULL) {
       *q++ = '\0';  /* delimit */
       tmp.mask = 0;
@@ -229,7 +229,7 @@ int readconf(FILE *fp)
     } else {
       tok = p;
       q = strchr(tok, '/');
-      /* check wheather port has optional proto */
+      /* check whether port has optional proto */
       if (q != NULL) {
 	*q++ = '\0';  /* delimit */
 	len = strlen(q);
@@ -461,24 +461,25 @@ int dot_to_masklen(char *addr)
     10.0.1.117             tomo    hogerata
     mxs001.c-wind.com      bob     foobar
 */
-int getpasswd(bin_addr *proxy, struct user_pass *up)
+int getpasswd(bin_addr *proxy, u_int16_t pport, struct user_pass *up, char *path_pwdfile)
 {
   FILE     *fp;
   char     buf[MAXLINE];
-  char     *p, *tok, *host, *last;
+  char     *p, *q, *tok, *host, *last;
+  u_int16_t  port = 0;
   int      len, done = 0;
   bin_addr addr;
 
-  if (pwdfile == NULL) {  /* pwdfile: global variable */
+  if (path_pwdfile == NULL) {
     return(-1);
   }
 
   setuid(0);
-  fp = fopen(pwdfile, "r");
+  fp = fopen(path_pwdfile, "r");
   setreuid(-1, PROCUID);
 
   if ( fp == NULL ) {
-    DEBUG(2, "getpasswd(): cannot open pwdfile(%s)", pwdfile);
+    DEBUG(2, "getpasswd(): cannot open pwdfile(%s)", path_pwdfile);
     return(-1);
   }
 
@@ -490,7 +491,21 @@ int getpasswd(bin_addr *proxy, struct user_pass *up)
     }
     memset(&addr, 0, sizeof(addr));
     /* proxy host ip/name entry */
-    tok = p; len = strlen(tok);
+    tok = p;
+    q = strchr(tok, '/');
+    /* check whether host entry has port number */
+    if (q != NULL) {
+      *q++ = '\0'; /* delimit */
+      len = strlen(q);
+      if (len > 0) {
+	port = atoi(q);
+	if ( port > 0 && port != pport) {
+	  /* there is a port and is not matched pport */
+	  continue;
+	}
+      }
+    }
+    len = strlen(tok);
     if (str_to_addr(tok, &addr) != 0)  /* error */
       continue;
 
@@ -552,16 +567,16 @@ int getpasswd(bin_addr *proxy, struct user_pass *up)
 
 }
 
-int checklocalpwd(char *user, char *pass)
+int checklocalpwd(char *user, char *pass, char *path_localpwd)
 {
   FILE     *fp;
   char     buf[MAXLINE];
   char     *p, *tok;
   int      matched = 0;
 
-  if (localpwd == NULL
-      || (fp = fopen(localpwd, "r")) == NULL) {  /* localpwd: global variable */
-    DEBUG(2, "checklocalpwd(): cannot open localpwd(%s)", localpwd);
+  if (path_localpwd == NULL
+      || (fp = fopen(path_localpwd, "r")) == NULL) {  /* localpwd: global variable */
+    DEBUG(2, "checklocalpwd(): cannot open localpwd(%s)", path_localpwd);
     return(-1);
   }
 
@@ -614,7 +629,7 @@ int fg;
 /* dummy */
 
 /*
-extern int resolve_host (bin_addr *, u_int16_t, struct host_info *);
+extern int resolv_host (bin_addr *, u_int16_t, struct host_info *);
 
 void dump_entry();
 {

@@ -3,6 +3,13 @@
 #  $Id$
 #
 
+0.4.8p1 (2017/12/25)
+  + Fix bug: core dumps in certain condition; thanks Chris.
+  + refine foreground operation
+
+0.4.8 (2017/09/01)
+  + assign -v option to logging verbosity
+
 0.4.8b8 (2017/08/25)
   + user/pass authentication against local(private, non-system) password database (-U)
   + local password database generator script(python) is scripts/srpasswd.py

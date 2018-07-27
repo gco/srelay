@@ -44,8 +44,6 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /* proto types */
 int checkpasswd(char *, char *);
-extern int getpasswd __P((bin_addr *, struct user_pass *));
-extern int checklocalpwd __P((char *, char *));
 
 int auth_pwd_server(int s)
 {
@@ -110,8 +108,8 @@ int auth_pwd_server(int s)
   }
 
   /* do authentication */
-  if (localpwd != NULL) {
-    r = checklocalpwd(user, pass);
+  if (localpwd != NULL) { /* localpwd(global) */
+    r = checklocalpwd(user, pass, localpwd);
   } else {
     r = checkpasswd(user, pass);
   }
@@ -138,7 +136,7 @@ int auth_pwd_server(int s)
   return(code);   /* access granted or not */
 }
 
-int auth_pwd_client(int s, bin_addr *proxy)
+int auth_pwd_client(int s, bin_addr *proxy, u_int16_t pport)
 {
   u_char buf[640];
   int  r, ret, done;
@@ -146,7 +144,7 @@ int auth_pwd_client(int s, bin_addr *proxy)
 
   ret = -1; done = 0;
   /* get username/password */
-  r = getpasswd(proxy, &up);
+  r = getpasswd(proxy, pport, &up, pwdfile); /* pwdfile(global) */
   if ( r == 0 ) { /* getpasswd gets match */
     if ( up.ulen >= 1 && up.ulen <= 255
 	 && up.plen >= 1 && up.plen <= 255 ) {

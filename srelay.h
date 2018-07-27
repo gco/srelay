@@ -443,6 +443,8 @@ extern int queue_init __P((void));
 
 /* readconf.c */
 extern int readconf __P((FILE *));
+extern int getpasswd __P((bin_addr *, u_int16_t, struct user_pass *, char *));
+extern int checklocalpwd __P((char *, char *, char *));
 
 /* relay.c */
 extern void relay __P((SOCKS_STATE *));
@@ -473,7 +475,8 @@ extern int blocksignal __P((int));
 extern int releasesignal __P((int));
 extern void proclist_add __P((pid_t));
 extern void proclist_drop __P((pid_t));
+extern char *base64_encode __P((const char *));
 
 /* auth-pwd.c */
 extern int auth_pwd_server __P((int));
-extern int auth_pwd_client __P((int, bin_addr *));
+extern int auth_pwd_client __P((int, bin_addr *, u_int16_t));

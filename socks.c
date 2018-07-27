@@ -34,8 +34,6 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "srelay.h"
 
-extern int getpasswd __P((bin_addr *, struct user_pass *));
-
 #define TIMEOUTSEC    30
 
 #define GEN_ERR_REP(s, v) \
@@ -104,7 +102,7 @@ int socks_rep __P((int , int , int , SockAddr *));
 int build_socks_reply __P((int, int, SockAddr *, u_char *));
 int s5auth_s __P((int));
 int s5auth_s_rep __P((int, int));
-int s5auth_c __P((int, bin_addr *));
+int s5auth_c __P((int, bin_addr *, u_int16_t));
 int connect_to_http __P((SOCKS_STATE *));
 int forward_connect __P((SOCKS_STATE *));
 int bind_sock __P((int, SOCKS_STATE *, struct addrinfo *));
@@ -618,7 +616,7 @@ int connect_to_socks(SOCKS_STATE *state, int pproto)
   /* first try socks5 server */
   if (pproto == SOCKS || pproto == SOCKSv5) {
     if ((len = build_socks_request(state, buf, 5)) > 0) {
-      if (s5auth_c(state->r, &state->rtbl.prx[0].proxy) == 0) {
+      if (s5auth_c(state->r, &state->rtbl.prx[0].proxy, state->rtbl.prx[0].pport) == 0) {
 	/* socks5 auth nego to next hop success */
 	r = timerd_write(state->r, buf, len, TIMEOUTSEC);
 	if ( r == len ) {
@@ -1083,7 +1081,7 @@ int s5auth_s_rep(int s, int method)
 /*
   socks5 auth negotiation as client.
 */
-int s5auth_c(int s, bin_addr *proxy)
+int s5auth_c(int s, bin_addr *proxy, u_int16_t pport)
 {
   u_char buf[512];
   int r, num=0;
@@ -1094,7 +1092,7 @@ int s5auth_c(int s, bin_addr *proxy)
   buf[2] = S5ANOAUTH;   /* no authentication */
   num = 3;
 
-  if (getpasswd(proxy, NULL) == 0 ) {
+  if (getpasswd(proxy, pport, NULL, pwdfile) == 0 ) { /* pwdfile(global) */
     buf[1] = 2;
     buf[3] = S5AUSRPAS;   /* username/passwd authentication */
     num++;
@@ -1118,7 +1116,7 @@ int s5auth_c(int s, bin_addr *proxy)
   }
   if (buf[0] == 0x05 && buf[1] == 2) {
     /* do username/passwd authentication */
-    return(auth_pwd_client(s, proxy));
+    return(auth_pwd_client(s, proxy, pport));
   }
   /* auth negotiation failed */
   return(-1);
@@ -1127,12 +1125,16 @@ int s5auth_c(int s, bin_addr *proxy)
 int connect_to_http(SOCKS_STATE *state)
 {
   struct host_info dest;
-  char   buf[1024];
+  char   buf[2048];
   int    c, r, len;
   int    error;
   SockAddr ss;
+  struct user_pass up;
+  char   userpass[1024];
+  char   authhead[1024];
+  char   *b64;
   char *p;
-
+  
   p = buf;
   if (state->sr.req != S5REQ_CONN) {
     /* cannot handle request */
@@ -1142,10 +1144,21 @@ int connect_to_http(SOCKS_STATE *state)
 
   resolv_host(&state->sr.dest, state->sr.port, &dest);
 
-  snprintf(buf, sizeof(buf), "CONNECT %s:%s HTTP/1.0\r\n\r\n",
-	   dest.host, dest.port);
-  /* http/proxy auth not supported. */
-
+  snprintf(buf, sizeof(buf), "CONNECT %s:%s HTTP/1.1\r\n"
+	   "Host: %s:%s\r\n",
+	   dest.host, dest.port, dest.host, dest.port);
+  if (getpasswd(&state->rtbl.prx[0].proxy, state->rtbl.prx[0].pport, &up, pwdfile) == 0
+      && (strlen(buf) + (up.ulen+up.plen+2)*4/3+27 < sizeof(buf))) {
+    /* http/proxy auth */
+    strcpy(authhead, "Proxy-Authorization: basic ");
+    snprintf(userpass, sizeof(userpass), "%s:%s", up.user, up.pass);
+    b64 = base64_encode(userpass);
+    strncat(authhead, b64, strlen(b64));
+    free(b64);
+    strncat(buf, authhead, strlen(authhead));
+    strncat(buf, "\r\n", 2);
+  }
+  strncat(buf, "\r\n", 2);
   /* debug */
   msg_out(norm, ">>HTTP CONN %s:%s", dest.host, dest.port);
 
