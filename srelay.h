@@ -103,7 +103,7 @@ typedef    u_int32_t    socklen_t;
 # endif
 #endif
 
-#define version  "srelay 0.4.8p1 2017/12/25 (Tomo.M)"
+#define version  "srelay 0.4.8p2 2018/07/31 (Tomo.M)"
 
 #ifndef SYSCONFDIR
 # define SYSCONFDIR "/usr/local/etc"
@@ -284,15 +284,12 @@ enum { ANY = 0, TCP = 6, UDP = 17 };
 enum { SOCKS = 0, HTTP, SOCKSv4, SOCKSv5 };
 enum { DIRECT = 0, PROXY, PROXY1 };
 #define  USER_PASS_MAX   255
-#define  PROXY_MAX  2
 
 typedef struct {
   bin_addr	proxy;		/* proxy address */
   u_int16_t	pport;		/* proxy port (HBO) */
   int		pproto;		/* proxy protocol (0:socks, 1:HTTP, ..) */
 } PROXY_INFO;
-
-
 
 typedef struct {
   bin_addr	dest;		/* destination address */
