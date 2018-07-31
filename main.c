@@ -369,6 +369,10 @@ int serv_loop()
 	/* udp may be dynamically allocated */
 	if (state.sr.udp != NULL)
 	  free(state.sr.udp);
+	if (state.prx != NULL) {
+	  free(state.prx);
+	  state.prx = NULL;
+	}
 	continue;
       }
       relay(&state);
@@ -462,7 +466,7 @@ int main(int ac, char **av)
   }
 
   proxy_tbl = NULL;
-  proxy_tbl_ind = 0;
+  num_routes = 0;
 
   method_num = 0;
   method_tab[0] = '\0';

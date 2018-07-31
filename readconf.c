@@ -36,7 +36,8 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /* prototypes */
 int setport __P((u_int16_t *, char *));
-void add_entry __P((ROUTE_INFO *, ROUTE_INFO *, int));
+void add_proxy __P((PROXY_INFO *, PROXY_INFO **, int *));
+void add_entry __P((ROUTE_INFO *, ROUTE_INFO **, int *));
 void parse_err __P((int, int, char *));
 int dot_to_masklen __P((char *));
 int str_to_addr __P((char *, bin_addr *));
@@ -56,7 +57,7 @@ int str_to_addr __P((char *, bin_addr *));
 #define PORT_MAX  65535
 
 ROUTE_INFO  *proxy_tbl;    /* proxy routing table */
-int    proxy_tbl_ind;         /* next entry indicator */
+int    num_routes;         /* number of proxy routes */
 
 /*
   config format:
@@ -90,10 +91,10 @@ int readconf(FILE *fp)
   char		*any = "any";
   char		buf[MAXLINE];
   ROUTE_INFO	tmp;
-  ROUTE_INFO	tmp_tbl[MAX_ROUTE];
-  ROUTE_INFO	*new_proxy_tbl;
-  int		new_proxy_tbl_ind = 0;
-  int           px;
+  ROUTE_INFO	*new_proxy_tbl = NULL;
+  PROXY_INFO    prx;
+  int		new_num_routes = 0;
+  int           i, px;
 
   while (fp && fgets(buf, MAXLINE-1, fp) != NULL) {
     p = strtok_r(buf, " \t,\r\n", &last);
@@ -104,7 +105,7 @@ int readconf(FILE *fp)
     memset(&tmp, 0, sizeof(ROUTE_INFO));
     n++;
     /* relay method default */
-    tmp.rl_meth = DIRECT;
+    tmp.hops = DIRECT;
 
     /* destination */
     tok = p;
@@ -198,31 +199,32 @@ int readconf(FILE *fp)
 
     p = strtok_r(NULL, " \t,;#\r\n", &last);
     if (p == NULL) {        /* no proxy entry */
-      add_entry(&tmp, tmp_tbl, new_proxy_tbl_ind++);
+      add_entry(&tmp, &new_proxy_tbl, &new_num_routes);
       continue;
     }
 
     /* ================================ */
     /* proxy */
     px = 0;
+    tmp.hops = 0;
+    tmp.prx = NULL;
   Proxy_Loop:
+    memset(&prx, 0, sizeof(PROXY_INFO));
     tok = p;
-    if (str_to_addr(tok, &tmp.prx[px].proxy) != 0) {
+    if (str_to_addr(tok, &prx.proxy) != 0) {
       parse_err(warn, n, "proxy address parse error.");
       continue;
     }
 
-    /* relay method */
-    tmp.rl_meth = px + 1;
-
     /* proxy proto */
-    tmp.prx[px].pproto = SOCKS;        /* defaults to socks proxy */
+    prx.pproto = SOCKS;        /* defaults to socks proxy */
 
     /* proxy port */
     p = strtok_r(NULL, " \t,;#\r\n", &last);
     if (p == NULL) { /* proxy-port is ommited */
-      tmp.prx[px].pport = SOCKS_PORT;     /* defaults to socks port */
-      add_entry(&tmp, tmp_tbl, new_proxy_tbl_ind++);
+      prx.pport = SOCKS_PORT;     /* defaults to socks port */
+      add_proxy(&prx, &tmp.prx, &tmp.hops);
+      add_entry(&tmp, &new_proxy_tbl, &new_num_routes);
       /* remaining data is ignored */
       continue;
 
@@ -237,30 +239,30 @@ int readconf(FILE *fp)
 	  switch((int)*q) {
 	  case 'H':
 	  case 'h':
-	    tmp.prx[px].pproto = HTTP;
+	    prx.pproto = HTTP;
 	    break;
 	  case '4':
-	    tmp.prx[px].pproto = SOCKSv4;
+	    prx.pproto = SOCKSv4;
 	    break;
 	  case '5':
-	    tmp.prx[px].pproto = SOCKSv5;
+	    prx.pproto = SOCKSv5;
 	    break;
 	  case 'S':
 	  case 's':
 	  default:
-	    tmp.prx[px].pproto = SOCKS; /* try v5->v4 */
+	    prx.pproto = SOCKS; /* try v5->v4 */
 	    break;
 	  }
 	}
       }
-      if (setport(&(tmp.prx[px].pport), tok) < 0) {
+      if (setport(&(prx.pport), tok) < 0) {
 	continue;
       }
     }
-    px++;
+    add_proxy(&prx, &tmp.prx, &tmp.hops);
     p = strtok_r(NULL, " \t,;#\r\n", &last);
-    if (p == NULL || px >= PROXY_MAX ) {
-      add_entry(&tmp, tmp_tbl, new_proxy_tbl_ind++);
+    if (p == NULL ) {
+      add_entry(&tmp, &new_proxy_tbl, &new_num_routes);
       continue;
     } else {
       goto Proxy_Loop;
@@ -268,28 +270,22 @@ int readconf(FILE *fp)
 
   }
 
-  if ( new_proxy_tbl_ind <= 0 ) { /* no valid entries */
+  if ( new_num_routes <= 0 ) { /* no valid entries */
     parse_err(warn, n, "no valid entries found. using default.");
-    new_proxy_tbl_ind = 1;
-    memset(tmp_tbl, 0, sizeof(ROUTE_INFO));
-    tmp_tbl[0].port_l = PORT_MIN; tmp_tbl[0].port_h = PORT_MAX;
   }
 
-  /* allocate suitable memory space to proxy_tbl */
-  new_proxy_tbl = (ROUTE_INFO *)malloc(sizeof(ROUTE_INFO)
-					* new_proxy_tbl_ind);
-  if ( new_proxy_tbl == (ROUTE_INFO *)0 ) {
-    /* malloc error */
-    return(-1);
+  if (new_proxy_tbl != NULL) {
+    if (proxy_tbl != NULL) { /* may holds previous table */
+      for (i = 0; i < num_routes; i++) {
+	if (proxy_tbl[i].hops > 0 && proxy_tbl[i].prx != NULL) {
+	  free(proxy_tbl[i].prx);
+	}
+      }
+      free(proxy_tbl);
+    }
+    proxy_tbl  = new_proxy_tbl;
+    num_routes = new_num_routes;
   }
-  memcpy(new_proxy_tbl, tmp_tbl,
-	 sizeof(ROUTE_INFO) * new_proxy_tbl_ind);
-
-  if (proxy_tbl != NULL) { /* may holds previous table */
-    free(proxy_tbl);
-  }
-  proxy_tbl     = new_proxy_tbl;
-  proxy_tbl_ind = new_proxy_tbl_ind;
   return(0);
 }
 
@@ -307,13 +303,33 @@ int setport(u_int16_t *to, char *str) {
   return 0;
 }
 
-void add_entry(ROUTE_INFO *r, ROUTE_INFO *t, int ind)
+void add_proxy(PROXY_INFO *add, PROXY_INFO **to, int *hops)
 {
-  if (ind >= MAX_ROUTE) {
+  PROXY_INFO *p = *to;
+
+  p = realloc(p, sizeof(PROXY_INFO)*((*hops)+1));
+  if (p != NULL) {
+    memcpy(&p[(*hops)], add, sizeof(PROXY_INFO));
+    *to = p;
+    (*hops)++;
+  }
+}
+
+
+void add_entry(ROUTE_INFO *route, ROUTE_INFO **tbl, int *ind)
+{
+  ROUTE_INFO *t = *tbl;
+
+  if (*ind >= MAX_ROUTE) {
     /* error in add_entry */
     return;
   }
-  memcpy(&t[ind], r, sizeof(ROUTE_INFO));
+  t = realloc(t, sizeof(ROUTE_INFO)*((*ind)+1));
+  if (t != NULL) {
+    memcpy(&t[(*ind)], route, sizeof(ROUTE_INFO));
+    *tbl = t;
+    (*ind)++;
+  }
 }
 
 void parse_err(int sev, int line, char *msg)
@@ -615,7 +631,7 @@ int checklocalpwd(char *user, char *pass, char *path_localpwd)
 /*
   ./configure
   make readconf.o util.o socks.o
-  gcc -pthread -o readconf readconf.o util.o socks.o
+  gcc -pthread -lcrypt -o readconf readconf.o util.o socks.o
   ./readconf conf
 */
 /* dummy */
@@ -626,39 +642,54 @@ int threading;
 pthread_t main_thread;
 char *config;
 int fg;
+int verbosity = 0;
+int bind_restrict = 1;
+int method_num;
+char method_tab[1];
+char *pwdfile;
+int same_interface = 0;
+char *bindtodevice = NULL;
 /* dummy */
 
-/*
+struct host_info {
+  char    host[NI_MAXHOST];
+  char    port[NI_MAXSERV];
+};
+
+int auth_pwd_client (int a, bin_addr *b, u_int16_t c) { return(0); }
+int auth_pwd_server (int a) { return(0); }
+int get_bind_addr (bin_addr *a, struct addrinfo *b) { return(0); }
+
 extern int resolv_host (bin_addr *, u_int16_t, struct host_info *);
 
-void dump_entry();
+void dump_entry()
 {
   int    i, j;
-  char   host[NI_MAXHOST];
+  struct host_info dest;
 
-  for (i=0; i < proxy_tbl_ind; i++) {
+  for (i=0; i < num_routes; i++) {
     fprintf(stdout, "--- %d ---\n", i);
     fprintf(stdout, "atype: %d\n", proxy_tbl[i].dest.atype);
 
-    resolv_host(&proxy_tbl[i].dest, host, sizeof(host));
-    fprintf(stdout, "dest: %s\n", host);
+    resolv_host(&proxy_tbl[i].dest, 0, &dest);
+    fprintf(stdout, "dest: %s\n", dest.host);
 
     fprintf(stdout, "mask: %d\n", proxy_tbl[i].mask);
     fprintf(stdout, "port_l: %u\n", proxy_tbl[i].port_l);
     fprintf(stdout, "port_h: %u\n", proxy_tbl[i].port_h);
 
-    fprintf(stdout, "rl_meth: %d\n", proxy_tbl[i].rl_meth);
+    fprintf(stdout, "hops: %d\n", proxy_tbl[i].hops);
 
-    for (j=0; j<PROXY_MAX; j++) {
-      resolv_host(&proxy_tbl[i].prx[j].proxy, host, sizeof(host));
-      fprintf(stdout, "proxy[%d]: %s\n", j, host);
+    for (j=0; j<proxy_tbl[i].hops; j++) {
+      resolv_host(&proxy_tbl[i].prx[j].proxy, 0, &dest);
+      fprintf(stdout, "proxy[%d]: %s\n", j, dest.host);
       fprintf(stdout, "pport[%d]: %u\n", j, proxy_tbl[i].prx[j].pport);
       fprintf(stdout, "pproto[%d]: %d\n", j, proxy_tbl[i].prx[j].pproto);
     }
   }
 }
-*/
 
+/*
 void checkpwd(bin_addr *proxy, struct user_pass *up)
 {
   if (getasswd(proxy, up) == 0) {
@@ -667,14 +698,18 @@ void checkpwd(bin_addr *proxy, struct user_pass *up)
 
 }
 
+*/
+
 int main(int argc, char **argv) {
 
   FILE *fp;
+
+  /*
   bin_addr proxy;
   struct user_pass up;
   char buf[128];
-  
-  /*
+  */
+
   if (argc < 2) {
     fprintf(stderr, "need args\n");
     return(1);
@@ -684,17 +719,22 @@ int main(int argc, char **argv) {
     fprintf(stderr, "can't open %s\n", argv[1]);
     return(1);
   }
+  printf("proxy_tbl: %p\n", proxy_tbl);
+
   readconf(fp);
   fclose(fp);
 
-  dump_entry();
-  return(0);
-  */
+  printf("proxy_tbl: %p\n", proxy_tbl);
 
-  
+  if (num_routes > 0)
+    dump_entry();
+  return(0);
+
+  /*  
   int r = str_to_addr("ab7.def.com", &proxy);
   printf("%d %s\n", r, inet_ntop(AF_INET, proxy.v4_addr, buf, sizeof buf));
   checkpwd(&proxy, &up);
+  */
 
 }
 #endif

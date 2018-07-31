@@ -96,7 +96,7 @@ int proto_socks5 __P((SOCKS_STATE *));
 int socks_direct_conn __P((SOCKS_STATE *));
 int proxy_connect __P((SOCKS_STATE *));
 int build_socks_request __P((SOCKS_STATE *, u_char *, int));
-int connect_to_socks __P((SOCKS_STATE *, int));
+int connect_to_socks __P((SOCKS_STATE *));
 int socks_proxy_reply __P((int, SOCKS_STATE *));
 int socks_rep __P((int , int , int , SockAddr *));
 int build_socks_reply __P((int, int, SockAddr *, u_char *));
@@ -165,11 +165,25 @@ int proto_socks(SOCKS_STATE *state)
     lookup_tbl(state);
     log_request(state);
 
-    if (state->rtbl.rl_meth == DIRECT) {
-      r = socks_direct_conn(state);
-    } else {
-      r = proxy_connect(state);
+
+    if ( (state->hops == DIRECT && state->sr.req == S5REQ_CONN)
+	 || state->hops > 0 ) {
+      r = forward_connect(state);
+      if (r < 0) {
+	GEN_ERR_REP(state->s, state->sr.ver);
+	return(-1);
+      }
     }
+
+    if (state->hops > 0) {
+      for (state->cur = state->hops - 1; state->cur >= 0; state->cur--) {
+	r = proxy_connect(state);
+      }
+
+    } else {
+      r = socks_direct_conn(state);
+    }
+
   }
 
   if (r >= 0) {
@@ -364,21 +378,18 @@ int socks_direct_conn(SOCKS_STATE *state)
   int	save_errno = 0;
 
   /* process direct connect/bind to destination */
-  state->r = cs = acs = -1;
+  cs = acs = -1;
 
   /* process by_command request */
   switch (state->sr.req) {   /* request */
   case S5REQ_CONN:
-    error = forward_connect(state);
-    if (error >= 0) {
-      len = SS_LEN;
-      if (getsockname(state->r, &ss.sa, (socklen_t *)&len) < 0) {
-	save_errno = errno;
-	close(state->r);
-	state->r = -1;
-      }
+    len = SS_LEN;
+    if (getsockname(state->r, &ss.sa, (socklen_t *)&len) < 0) {
+      save_errno = errno;
+      close(state->r);
+      state->r = -1;
     }
-    if (error < 0 || save_errno != 0) {
+    if (save_errno != 0) {
       /* any socket error */
       switch (state->sr.ver) {
       case 0x04:
@@ -551,63 +562,35 @@ int socks_direct_conn(SOCKS_STATE *state)
 */
 int proxy_connect(SOCKS_STATE *state)
 {
-  int     save_errno = 0;
   int     r = 0;
-  SOCKS_STATE cp_req;
 
-  /* sanity check */
-  /* relay method must not be DIRECT */
-  /* forward socket should not be connected yet */
-  if (state->rtbl.rl_meth < 1 || state->r >= 0) {
-    /* shoud not be here */
-    GEN_ERR_REP(state->s, state->sr.ver);
-    return(-1);
-  }
-
-  r = forward_connect(state);
-  if (r < 0 || save_errno != 0) {
-    GEN_ERR_REP(state->s, state->sr.ver);
-    return(-1);
-  }
-
-  switch(state->rtbl.rl_meth) {
-  case PROXY1:
-    memcpy(&cp_req, state, sizeof(SOCKS_STATE));
-    cp_req.sr.ver = -1; /* fake req ver to suppress resp to client */
-    cp_req.sr.req = S5REQ_CONN;
-    memcpy(&cp_req.sr.dest, &state->rtbl.prx[0].proxy, sizeof(bin_addr));
-    cp_req.sr.port = state->rtbl.prx[0].pport;
-    if (state->rtbl.prx[1].pproto == HTTP) {
-      r = connect_to_http(&cp_req);
-    } else { /* SOCKS, SOCKSv4, SOCKSv5 */
-      r = connect_to_socks(&cp_req, state->rtbl.prx[1].pproto);
-    }
-    if (r < 0) {
-      GEN_ERR_REP(state->s, state->sr.ver);
-      return(-1);
-    }
-    /* not break, just continue */
-  case PROXY:
-    if (state->rtbl.prx[0].pproto == HTTP) {
-      /* limitation: cannot handle bind operation */
-      return(connect_to_http(state));
-    } else { /* SOCKS, SOCKSv4, SOCKSv5 */
-      return(connect_to_socks(state, state->rtbl.prx[0].pproto));
-    }
+  switch (state->prx[state->cur].pproto == HTTP) {
+  case HTTP:
+    r = connect_to_http(state);
+    break;
+  case SOCKS:
+  case SOCKSv4:
+  case SOCKSv5:
   default:
+    r = connect_to_socks(state);
     break;
   }
-  state->r = -1;
-  return(-1);
+  if (r < 0 && state->cur == 0) {
+    GEN_ERR_REP(state->s, state->sr.ver);
+    return(-1);
+  }
+  return(0);
 
 }
 
-int connect_to_socks(SOCKS_STATE *state, int pproto)
+int connect_to_socks(SOCKS_STATE *state)
 {
   int     r, len = 0;
   u_char  buf[640];
+  int     cur = state->cur;
+  int     pproto = state->prx[cur].pproto;
 
-  if (state->r < 0) {
+  if (state->r < 0 && state->cur == 0) {
     GEN_ERR_REP(state->s, state->sr.ver);
     return(-1);
   }
@@ -616,7 +599,7 @@ int connect_to_socks(SOCKS_STATE *state, int pproto)
   /* first try socks5 server */
   if (pproto == SOCKS || pproto == SOCKSv5) {
     if ((len = build_socks_request(state, buf, 5)) > 0) {
-      if (s5auth_c(state->r, &state->rtbl.prx[0].proxy, state->rtbl.prx[0].pport) == 0) {
+      if (s5auth_c(state->r, &state->prx[cur].proxy, state->prx[cur].pport) == 0) {
 	/* socks5 auth nego to next hop success */
 	r = timerd_write(state->r, buf, len, TIMEOUTSEC);
 	if ( r == len ) {
@@ -645,7 +628,9 @@ int connect_to_socks(SOCKS_STATE *state, int pproto)
   }
 
   /* still be an error, give it up. */
-  GEN_ERR_REP(state->s, state->sr.ver);
+  if (state->cur == 0) {
+    GEN_ERR_REP(state->s, state->sr.ver);
+  }
   return(-1);
 }
 
@@ -656,15 +641,28 @@ int connect_to_socks(SOCKS_STATE *state, int pproto)
  */
 int build_socks_request(SOCKS_STATE *state, u_char *buf, int ver)
 {
-  int     r, len = 0;
-  char    *user;
   /* buf must be at least 640 bytes long */
+  int       r, len = 0;
+  char      *user;
+  bin_addr  dest;
+  u_int16_t port;
+  int       req;
+
+  if (state->cur > 0) {
+    port = state->prx[state->cur-1].pport;
+    req = S5REQ_CONN;  /* only CONNECT among relays */
+    memcpy(&dest, &state->prx[state->cur-1].proxy, sizeof(bin_addr));
+  } else {
+    port = state->sr.port;
+    req = state->sr.req;
+    memcpy(&dest, &state->sr.dest, sizeof(bin_addr));
+  }
 
   switch (ver) {   /* next hop socks server version */
   case 0x04:
     /* build v4 request */
     buf[0] = 0x04;
-    buf[1] = state->sr.req;
+    buf[1] = req;
     if ( state->sr.u_len == 0 ) {
       user = S4DEFUSR;
       r = strlen(user);
@@ -675,22 +673,22 @@ int build_socks_request(SOCKS_STATE *state, u_char *buf, int ver)
     if (r < 0 || r > 255) {
       return(-1);
     }
-    buf[2] = (state->sr.port / 256);
-    buf[3] = (state->sr.port % 256);
+    buf[2] = (port / 256);
+    buf[3] = (port % 256);
     memcpy(&buf[8], user, r);
     len = 8+r;
     buf[len++] = 0x00;
-    switch (state->sr.dest.atype) {
+    switch (dest.atype) {
     case S4ATIPV4:
-      memcpy(&buf[4], state->sr.dest.v4_addr, sizeof(struct in_addr));
+      memcpy(&buf[4], dest.v4_addr, sizeof(struct in_addr));
       break;
     case S4ATFQDN:
       buf[4] = buf[5] = buf[6] = 0; buf[7] = 1;
-      r = state->sr.dest.len_fqdn;
+      r = dest.len_fqdn;
       if (r <= 0 || r > 255) {
 	return(-1);
       }
-      memcpy(&buf[len], state->sr.dest.fqdn, r);
+      memcpy(&buf[len], dest.fqdn, r);
       len += r;
       buf[len++] = 0x00;
       break;
@@ -702,28 +700,28 @@ int build_socks_request(SOCKS_STATE *state, u_char *buf, int ver)
   case 0x05:
     /* build v5 request */
     buf[0] = 0x05;
-    buf[1] = state->sr.req;
+    buf[1] = req;
     buf[2] = 0;
-    buf[3] = state->sr.dest.atype;
-    switch (state->sr.dest.atype) {
+    buf[3] = dest.atype;
+    switch (dest.atype) {
     case S5ATIPV4:
-      memcpy(&buf[4], state->sr.dest.v4_addr, 4);
-      buf[8] = (state->sr.port / 256);
-      buf[9] = (state->sr.port % 256);
+      memcpy(&buf[4], dest.v4_addr, 4);
+      buf[8] = (port / 256);
+      buf[9] = (port % 256);
       len = 10;
       break;
     case S5ATIPV6:
-      memcpy(&buf[4], state->sr.dest.v6_addr, 16);
-      buf[20] = (state->sr.port / 256);
-      buf[21] = (state->sr.port % 256);
+      memcpy(&buf[4], dest.v6_addr, 16);
+      buf[20] = (port / 256);
+      buf[21] = (port % 256);
       len = 22;
       break;
     case S5ATFQDN:
-      len = state->sr.dest.len_fqdn;
+      len = dest.len_fqdn;
       buf[4] = len;
-      memcpy(&buf[5], state->sr.dest.fqdn, len);
-      buf[5+len]   = (state->sr.port / 256);
-      buf[5+len+1] = (state->sr.port % 256);
+      memcpy(&buf[5], dest.fqdn, len);
+      buf[5+len]   = (port / 256);
+      buf[5+len+1] = (port % 256);
       len = 5+len+2;
       break;
     default:
@@ -772,7 +770,7 @@ int socks_proxy_reply(int v, SOCKS_STATE *state)
     /* read server reply */
     r = timerd_read(state->r, buf, sizeof buf, TIMEOUTSEC, 0);
 
-    if (state->sr.ver == -1) {  /* special case */
+    if (state->cur > 0) {  /* special case */
       if ((v == 5 && buf[1] == S5AGRANTED)
 	  || (v == 4 && buf[1] == S4AGRANTED)) {
 	return(0);
@@ -892,11 +890,6 @@ int socks_rep(int s, int ver, int code, SockAddr *addr)
 {
   u_char     buf[512];
   int        len = 0, r;
-
-  /* check */
-  if (ver == -1) {
-    return(0); /* special case */
-  }
 
   memset(buf, 0, sizeof(buf));
   len = build_socks_reply(ver, code, addr, buf);
@@ -1124,7 +1117,9 @@ int s5auth_c(int s, bin_addr *proxy, u_int16_t pport)
 
 int connect_to_http(SOCKS_STATE *state)
 {
-  struct host_info dest;
+  struct host_info hinfo;
+  bin_addr   dest;
+  u_int16_t  port;
   char   buf[2048];
   int    c, r, len;
   int    error;
@@ -1136,18 +1131,21 @@ int connect_to_http(SOCKS_STATE *state)
   char *p;
   
   p = buf;
-  if (state->sr.req != S5REQ_CONN) {
-    /* cannot handle request */
-    GEN_ERR_REP(state->s, state->sr.ver);
-    return(-1);
+
+  if (state->cur > 0) {
+    memcpy(&dest, &state->prx[state->cur-1].proxy, sizeof(bin_addr));
+    port = state->prx[state->cur-1].pport;
+  } else {
+    memcpy(&dest, &state->sr.dest, sizeof(bin_addr));
+    port = state->sr.port;
   }
 
-  resolv_host(&state->sr.dest, state->sr.port, &dest);
+  resolv_host(&dest, port, &hinfo);
 
   snprintf(buf, sizeof(buf), "CONNECT %s:%s HTTP/1.1\r\n"
 	   "Host: %s:%s\r\n",
-	   dest.host, dest.port, dest.host, dest.port);
-  if (getpasswd(&state->rtbl.prx[0].proxy, state->rtbl.prx[0].pport, &up, pwdfile) == 0
+	   hinfo.host, hinfo.port, hinfo.host, hinfo.port);
+  if (getpasswd(&state->prx[state->cur].proxy, state->prx[state->cur].pport, &up, pwdfile) == 0
       && (strlen(buf) + (up.ulen+up.plen+2)*4/3+27 < sizeof(buf))) {
     /* http/proxy auth */
     strcpy(authhead, "Proxy-Authorization: basic ");
@@ -1160,7 +1158,7 @@ int connect_to_http(SOCKS_STATE *state)
   }
   strncat(buf, "\r\n", 2);
   /* debug */
-  msg_out(norm, ">>HTTP CONN %s:%s", dest.host, dest.port);
+  msg_out(norm, ">>HTTP CONN %s:%s", hinfo.host, hinfo.port);
 
   len = strlen(buf);
   r = timerd_write(state->r, (u_char *)buf, len, TIMEOUTSEC);
@@ -1177,7 +1175,7 @@ int connect_to_http(SOCKS_STATE *state)
 	/* redirection not supported */
 	do { /* skip resp headers */
 	  r = get_line(state->r, buf, sizeof(buf));
-	  if (r <= 0) {
+	  if (r <= 0 && state->cur == 0) {
 	    GEN_ERR_REP(state->s, state->sr.ver);
 	    return(-1);
 	  }
@@ -1185,12 +1183,16 @@ int connect_to_http(SOCKS_STATE *state)
 	len = SS_LEN;
 	getsockname(state->r, &ss.sa, (socklen_t *)&len);
 	/* is this required ?? */
-	POSITIVE_REP(state->s, state->sr.ver, &ss);
-	return(0);
+	if (state->cur == 0) {
+	  POSITIVE_REP(state->s, state->sr.ver, &ss);
+	  return(0);
+	}
       }
     }
   }
-  GEN_ERR_REP(state->s, state->sr.ver);
+  if (state->cur == 0) {
+    GEN_ERR_REP(state->s, state->sr.ver);
+  }
   return(-1);
 }
 
@@ -1208,20 +1210,11 @@ int forward_connect(SOCKS_STATE *state)
   SockAddr ss;
   int    error = 0;
 
-  switch(state->rtbl.rl_meth) {
-  case DIRECT:
+  if (state->hops > 0) {
+    error = resolv_host(&state->prx[state->hops-1].proxy,
+			state->prx[state->hops-1].pport, &dest);
+  } else {
     error = resolv_host(&state->sr.dest, state->sr.port, &dest);
-    break;
-  case PROXY:
-    error = resolv_host(&state->rtbl.prx[0].proxy,
-			state->rtbl.prx[0].pport, &dest);
-    break;
-  case PROXY1:
-    error = resolv_host(&state->rtbl.prx[1].proxy,
-			state->rtbl.prx[1].pport, &dest);
-    break;
-  default:
-    return(-1);
   }
 
   /* string addr => addrinfo */
@@ -1492,7 +1485,7 @@ int lookup_tbl(SOCKS_STATE *state)
   struct sockaddr_in6 *sa6;
 
   match = 0;
-  for (i=0; i < proxy_tbl_ind; i++) {
+  for (i=0; i < num_routes; i++) {
     /* check IP PROTO */
     if ( (state->sr.req == S5REQ_UDPA && proxy_tbl[i].proto == TCP)
 	 || (state->sr.req != S5REQ_UDPA && proxy_tbl[i].proto == UDP))
@@ -1520,7 +1513,7 @@ int lookup_tbl(SOCKS_STATE *state)
 
     if ( !error ) {
       for (res = res0; res; res = res->ai_next) {
-	for (i = 0; i < proxy_tbl_ind; i++) {
+	for (i = 0; i < num_routes; i++) {
 	  /* check IP PROTO */
 	  if ( (state->sr.req == S5REQ_UDPA && proxy_tbl[i].proto == TCP)
 	       || (state->sr.req != S5REQ_UDPA && proxy_tbl[i].proto == UDP))
@@ -1563,13 +1556,16 @@ int lookup_tbl(SOCKS_STATE *state)
     }
   }
 
-  memset(&(state->rtbl), 0, sizeof(ROUTE_INFO));
+  state->hops = 0;
+  state->cur = 0;
+  state->prx = NULL;
 
-  if (match) {
-    memcpy(&(state->rtbl), &(proxy_tbl[i]), sizeof(ROUTE_INFO));
-    state->tbl_ind = i;
-  } else
-    state->tbl_ind = proxy_tbl_ind;
+  if (match && proxy_tbl[i].hops > 0
+      && (state->prx = malloc(sizeof(PROXY_INFO)*proxy_tbl[i].hops)) != NULL ) {
+    memcpy(state->prx, proxy_tbl[i].prx, sizeof(PROXY_INFO)*proxy_tbl[i].hops);
+    state->hops = proxy_tbl[i].hops;
+    state->cur = state->hops-1;
+  }
   return(0);
 }
 
@@ -1649,15 +1645,15 @@ int log_request(SOCKS_STATE *state)
   int     reqmap[] = {3, 0, 1, 2};
   int     direct = 0;
 
-  if (state->rtbl.rl_meth == DIRECT) {
+  if (state->hops > 0) {
+    error += resolv_host(&state->prx[state->hops-1].proxy,
+			 state->prx[state->hops-1].pport,
+			 &proxy);
+  } else {
     /* proxy_XX is N/A */
     strcpy(proxy.host, "-");
     strcpy(proxy.port, "-");
     direct = 1;
-  } else {
-    error += resolv_host(&state->rtbl.prx[0].proxy,
-			 state->rtbl.prx[0].pport,
-			 &proxy);
   }
   error += resolv_host(&state->sr.dest, state->sr.port, &dest);
 

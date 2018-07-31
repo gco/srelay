@@ -287,17 +287,21 @@ enum { DIRECT = 0, PROXY, PROXY1 };
 #define  PROXY_MAX  2
 
 typedef struct {
+  bin_addr	proxy;		/* proxy address */
+  u_int16_t	pport;		/* proxy port (HBO) */
+  int		pproto;		/* proxy protocol (0:socks, 1:HTTP, ..) */
+} PROXY_INFO;
+
+
+
+typedef struct {
   bin_addr	dest;		/* destination address */
   int		mask;		/* destination address mask len */
   u_int16_t	port_l;		/* port range low  (HostByteOrder) */
   u_int16_t	port_h;		/* port range high (HBO)*/
   int		proto;		/* IP PROTO ANY/TCP/UDP */
-  int		rl_meth;	/* relaying method(direct, proxy, 2proxy*/
-  struct {
-    bin_addr	proxy;		/* proxy address */
-    u_int16_t	pport;		/* proxy port (HBO) */
-    int		pproto;		/* proxy protocol (0:socks, 1:HTTP, ..) */
-  } prx[PROXY_MAX];
+  int		hops;		/* relaying hops(direct=0, proxy, 2proxy*/
+  PROXY_INFO    *prx;
 } ROUTE_INFO;
 
 typedef struct {
@@ -353,8 +357,9 @@ typedef struct {
   int		s;		/* client socket */
   int		r;		/* forwarding socket */
   SOCKS_REQ	sr;		/* socks protocol request */
-  int		tbl_ind;	/* proxy table indicator */
-  ROUTE_INFO	rtbl;		/* selected proxy routing */
+  int           hops;           /* proxy hops */
+  int           cur;            /* current proxy hop */
+  PROXY_INFO    *prx;           /* proxy route */
   SOCK_INFO	*si;		/* socket names */
 } SOCKS_STATE;
 
@@ -416,7 +421,7 @@ extern int sig_queue[];
 
 /* from readconf.c */
 extern ROUTE_INFO *proxy_tbl;
-extern int proxy_tbl_ind;
+extern int num_routes;
 
 /* from relay.c */
 extern int resolv_client;

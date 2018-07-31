@@ -265,6 +265,10 @@ void relay(SOCKS_STATE *state)
     relay_udp(state);
   else
     relay_tcp(state);
+  if (state->prx != NULL) {
+    free(state->prx);
+    state->prx = NULL;
+  }
 }
 
 #ifndef MAX
@@ -411,7 +415,7 @@ void relay_udp(SOCKS_STATE *state)
       if (FD_ISSET(state->sr.udp->d, &rfds)) {
 	ri.from = state->sr.udp->d; ri.to = state->sr.udp->u;
 	ri.dir = UP;
-	if ((wc = forward_udp(&ri, state->sr.udp, state->rtbl.rl_meth)) < 0)
+	if ((wc = forward_udp(&ri, state->sr.udp, state->hops)) < 0)
 	  done++;
 	else
 	  li.bc += wc; li.upl += wc;
@@ -420,7 +424,7 @@ void relay_udp(SOCKS_STATE *state)
       if (state->sr.udp->u >= 0 && FD_ISSET(state->sr.udp->u, &rfds)) {
 	ri.from = state->sr.udp->u; ri.to = state->sr.udp->d;
 	ri.dir = DOWN;
-	if ((wc = forward_udp(&ri, state->sr.udp, state->rtbl.rl_meth)) < 0)
+	if ((wc = forward_udp(&ri, state->sr.udp, state->hops)) < 0)
 	  done++;
 	else
 	  li.bc += wc; li.dnl += wc;
