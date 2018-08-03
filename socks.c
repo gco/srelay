@@ -564,7 +564,7 @@ int proxy_connect(SOCKS_STATE *state)
 {
   int     r = 0;
 
-  switch (state->prx[state->cur].pproto == HTTP) {
+  switch (state->prx[state->cur].pproto) {
   case HTTP:
     r = connect_to_http(state);
     break;
