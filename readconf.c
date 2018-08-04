@@ -2,7 +2,7 @@
   readconf.c:
   $Id$
 
-Copyright (C) 2001-2010 Tomo.M (author).
+Copyright (C) 2001-2018 Tomo.M (author).
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -104,8 +104,8 @@ int readconf(FILE *fp)
     }
     memset(&tmp, 0, sizeof(ROUTE_INFO));
     n++;
-    /* relay method default */
-    tmp.hops = DIRECT;
+    /* hops = 0: no next hop */
+    tmp.hops = 0;
 
     /* destination */
     tok = p;
@@ -261,7 +261,7 @@ int readconf(FILE *fp)
     }
     add_proxy(&prx, &tmp.prx, &tmp.hops);
     p = strtok_r(NULL, " \t,;#\r\n", &last);
-    if (p == NULL ) {
+    if (p == NULL) {
       add_entry(&tmp, &new_proxy_tbl, &new_num_routes);
       continue;
     } else {
@@ -314,7 +314,6 @@ void add_proxy(PROXY_INFO *add, PROXY_INFO **to, int *hops)
     (*hops)++;
   }
 }
-
 
 void add_entry(ROUTE_INFO *route, ROUTE_INFO **tbl, int *ind)
 {
@@ -591,7 +590,7 @@ int checklocalpwd(char *user, char *pass, char *path_localpwd)
   int      matched = 0;
 
   if (path_localpwd == NULL
-      || (fp = fopen(path_localpwd, "r")) == NULL) {  /* localpwd: global variable */
+      || (fp = fopen(path_localpwd, "r")) == NULL) {
     DEBUG(2, "checklocalpwd(): cannot open localpwd(%s)", path_localpwd);
     return(-1);
   }
@@ -697,7 +696,6 @@ void checkpwd(bin_addr *proxy, struct user_pass *up)
   }
 
 }
-
 */
 
 int main(int argc, char **argv) {
