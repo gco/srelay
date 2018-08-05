@@ -1167,10 +1167,12 @@ int connect_to_http(SOCKS_STATE *state)
     /* get resp */
     r = get_line(state->r, buf, sizeof(buf));
     if (r >= 12) {
-      while (r>0 && ((c=*p) != ' ' && c != '\t'))
+      while (r>0 && ((c=*p) != ' ' && c != '\t')) {
 	p++; r--;
-      while (r>0 && ((c=*p) == ' ' || c == '\t'))
+      }
+      while (r>0 && ((c=*p) == ' ' || c == '\t')) {
 	p++; r--;
+      }
       if (strncmp(p, "200", 3) == 0) {
 	/* redirection not supported */
 	do { /* skip resp headers */

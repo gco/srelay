@@ -318,33 +318,36 @@ void relay_tcp(SOCKS_STATE *state)
 	ri.from = state->r; ri.to = state->s; ri.flags = 0;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
-	else
+	else {
 	  li.bc += wc; li.dnl += wc;
-
+	}
 	FD_CLR(state->r, &rfds);
       }
       if (FD_ISSET(state->r, &xfds)) {
 	ri.from = state->r; ri.to = state->s; ri.flags = MSG_OOB;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
-	else
+	else {
 	  li.bc += wc; li.dnl += wc;
+	}
 	FD_CLR(state->r, &xfds);
       }
       if (FD_ISSET(state->s, &rfds)) {
 	ri.from = state->s; ri.to = state->r; ri.flags = 0;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
-	else
+	else {
 	  li.bc += wc; li.upl += wc;
+	}
 	FD_CLR(state->s, &rfds);
       }
       if (FD_ISSET(state->s, &xfds)) {
 	ri.from = state->s; ri.to = state->r; ri.flags = MSG_OOB;
 	if ((wc = forward(&ri)) <= 0)
 	  done++;
-	else
+	else {
 	  li.bc += wc; li.upl += wc;
+	}
 	FD_CLR(state->s, &xfds);
       }
       if (done > 0)
@@ -417,8 +420,9 @@ void relay_udp(SOCKS_STATE *state)
 	ri.dir = UP;
 	if ((wc = forward_udp(&ri, state->sr.udp, state->hops)) < 0)
 	  done++;
-	else
+	else {
 	  li.bc += wc; li.upl += wc;
+	}
 	FD_CLR(state->sr.udp->d, &rfds);
       }
       if (state->sr.udp->u >= 0 && FD_ISSET(state->sr.udp->u, &rfds)) {
@@ -426,8 +430,9 @@ void relay_udp(SOCKS_STATE *state)
 	ri.dir = DOWN;
 	if ((wc = forward_udp(&ri, state->sr.udp, state->hops)) < 0)
 	  done++;
-	else
+	else {
 	  li.bc += wc; li.dnl += wc;
+	}
 	FD_CLR(state->sr.udp->d, &rfds);
       }
       /* packets on TCP channel may indicate
