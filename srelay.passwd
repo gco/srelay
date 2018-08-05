@@ -2,5 +2,6 @@
 #  srelay proxy passwd.
 #  $Id$
 #
-# proxy		user		passwd
+# proxy[/port]	user		passwd
 192.168.1.1	hogahoge	%"aXhe
+2.2.2.100/10080	hogehoge	%"aXhe

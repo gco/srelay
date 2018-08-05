@@ -53,6 +53,9 @@ PID file; stores main process or main thread process ID.
 .B \-u \fI file \fP
 srelay password file used in intermediate SOCKS5 server.
 .TP
+.B \-U \fI file \fP
+srelay local password file to authenticate users instead of using system passwd file.
+.TP
 .B \-a \fP[n|p]
 authentication method.
 .RS
@@ -142,7 +145,7 @@ Configuration file format.
 .br
 # IPv6 destinations go through Gateway
 .br
-::				-		100.200.1.1
+[::]				-		100.200.1.1
 .br
 # IPv4 destinations go through another Gateway
 .br
@@ -150,7 +153,7 @@ Configuration file format.
 .br
 # (IPv6 to IPv4 destinations)
 .br
-0.0.0.0				-	3002::1:4321:250:8bff:ffa8:1234
+0.0.0.0				-	[3002::1:4321:250:8bff:ffa8:1234]
 .br
 # no next-hop means connect direct.
 .br
@@ -176,20 +179,26 @@ Dest    any       Socks-Island 1080      FireWall  8080/H
 
 The listing order of proxy and proxy2 is farthest first order.
 
-
-
-
 .br
 .SS srelay.passwd
 Username/Password information for connecting next-hop socks server.
 .br
+
 # this line is comment.
 .br
-# next-hop server	username	password
+# next-hop server[/port]	username	password
 .br
 123.234.0.1		hogehoga	xyz$12#
 .br
-10.11.22.1		opopop		tutut555
+10.11.22.1/1080		opopop		tutut555
+
+.SS srelay.localpwd
+Username/Password-hash information for authenticate srelay users.
+.br
+
+user1:$5$mq5pkSax.bRc2W1/$mHZDQafnG.TOxwsxqwFjzWA7mjP44mo2zPREHw.CsH2
+user2:$5$8sv7vPq0GRJw50n0$eiRFdvPNPOuNooR.3cKKO2Ie0GTZm2QxehseG2.V45C
+.br
 .SH FILES
 .TP
 .B /usr/local/etc/srelay.conf
