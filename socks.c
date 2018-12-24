@@ -445,7 +445,7 @@ int socks_direct_conn(SOCKS_STATE *state)
       return(-1);
     }
 
-    listen(acs, 64);
+    listen(acs, INT_MAX);
     /* get my socket name again to acquire an
        actual listen port number */
     len = SS_LEN;

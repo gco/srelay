@@ -171,7 +171,7 @@ int serv_init(char *ifs)
 	close(s);
 	continue;
       }
-      if (listen(s, 64) < 0) {
+      if (listen(s, INT_MAX) < 0) {
 	close(s);
 	continue;
       }
