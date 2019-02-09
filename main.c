@@ -646,7 +646,7 @@ int main(int ac, char **av)
   if (serv_sock_ind == 0) {   /* no valid ifs yet */
     if (serv_init(":") < 0) { /* use default */
       /* fatal */
-      msg_out(crit, "cannot open server socket\n");
+      msg_out(crit, "cannot open server socket: %m\n");
       exit(1);
     }
   }
